@@ -1,0 +1,224 @@
+/* =========================
+   Reset + Base
+========================= */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, sans-serif;
+  background: #0b1220;
+  color: #e5e7eb;
+  line-height: 1.4;
+}
+
+/* Links */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Inputs */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* =========================
+   Layout
+========================= */
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.col {
+  flex: 1;
+  min-width: 220px;
+}
+
+/* =========================
+   Cards
+========================= */
+.card {
+  background: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+.item {
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 12px;
+  background: #0b1220;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* =========================
+   Typography
+========================= */
+.h1 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+
+.h2 {
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+
+.muted {
+  opacity: 0.85;
+}
+
+/* =========================
+   Forms
+========================= */
+label {
+  display: block;
+  font-size: 12px;
+  opacity: 0.9;
+  margin-bottom: 6px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #374151;
+  background: #0b1220;
+  color: #e5e7eb;
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.15);
+}
+
+textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+/* =========================
+   Buttons
+========================= */
+.btn {
+  background: #2563eb;
+  color: white;
+  border: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform 0.04s ease, opacity 0.2s ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn.secondary {
+  background: #374151;
+}
+
+.btn.danger {
+  background: #dc2626;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* =========================
+   Badges
+========================= */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #0b1220;
+  border: 1px solid #1f2937;
+}
+
+/* =========================
+   Dividers
+========================= */
+.hr {
+  height: 1px;
+  background: #1f2937;
+  margin: 14px 0;
+}
+
+/* =========================
+   Responsive
+========================= */
+@media (max-width: 520px) {
+  .container {
+    padding: 12px;
+  }
+  .card {
+    padding: 14px;
+  }
+  .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .actions {
+    justify-content: stretch;
+  }
+}
+
+.btn.danger {
+  background: #991b1b;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.btn.danger:hover {
+  filter: brightness(1.05);
+}
+
+.btn.danger {
+  background: #991b1b;
+  color: white;
+}
+.btn.danger:disabled {
+  opacity: 0.5;
+}
