@@ -7,9 +7,21 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+
+      includeAssets: [
+        "favicon.ico",
+        "favicon.png",
+        "pwa-192x192.png",
+        "pwa-512x512.png"
+      ],
+
+      workbox: {
+        cleanupOutdatedCaches: true
+      },
+
       manifest: {
         name: "RDO Turno",
-        short_name: "RDO",
+        short_name: "RDO", // ✅ recomendado: nome curto no ícone
         description: "Relatório de Turno Offline",
         theme_color: "#111827",
         background_color: "#111827",

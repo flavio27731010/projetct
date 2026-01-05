@@ -1,5 +1,5 @@
 {
-  "name": "rdo-pwa",
+  "name": "RDO - Turno",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -16,8 +16,7 @@
     "jspdf-autotable": "^5.0.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.11.0",
-    "vite-plugin-pwa": "^1.2.0"
+    "react-router-dom": "^7.11.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
