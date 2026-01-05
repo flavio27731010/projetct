@@ -200,7 +200,7 @@ export default function ReportDetail() {
             <button className="btn secondary" onClick={() => nav("/")}>
               Voltar
             </button>
-            <button className="btn secondary" onClick={() => generateReportPDF(report, activities, pendings)}>
+            <button className="btn secondary" onClick={async () => await generateReportPDF(report, activities, pendings)}>
               Gerar PDF
             </button>
             <button className="btn" onClick={finalizeAndSync} disabled={!requiredOk}>
@@ -239,7 +239,7 @@ export default function ReportDetail() {
                 <input
                   value={actDesc}
                   onChange={(e) => setActDesc(e.target.value)}
-                  placeholder="Ex: Inspeção de painel..."
+                  placeholder="Ex: Coleta de caracterização..."
                 />
               </div>
             </div>
@@ -295,7 +295,7 @@ export default function ReportDetail() {
                 <input
                   value={penDesc}
                   onChange={(e) => setPenDesc(e.target.value)}
-                  placeholder="Ex: Verificar vazamento..."
+                  placeholder="Ex: Manutenção nos veículos..."
                 />
               </div>
             </div>
@@ -379,7 +379,7 @@ export default function ReportDetail() {
             <h2 className="h2">Revisão</h2>
 
            <p className="muted">
-  Obrigatórios: <strong>assinatura</strong> e pelo menos <strong>1 atividade</strong>. Pendências são opcionais.
+  Obrigatórios: <strong>assinatura</strong> e pelo menos <strong>1 atividade</strong>.
 </p>
 
 

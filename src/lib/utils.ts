@@ -1,3 +1,5 @@
+import type { Pending } from "./db";
+
 export function uuid() {
   return crypto.randomUUID();
 }
@@ -36,3 +38,19 @@ export function shiftTimes(shift: "DIURNO" | "NOTURNO") {
 export function formatShift(shift: "DIURNO" | "NOTURNO") {
   return shift === "DIURNO" ? "Diurno (07:00–19:00)" : "Noturno (19:00–07:00)";
 }
+
+// ✅ contagem de pendências por status
+export function countPendings(pendings: Pending[]) {
+  return {
+    abertas: pendings.filter((p) => p.status !== "RESOLVIDO").length,
+    resolvidas: pendings.filter((p) => p.status === "RESOLVIDO").length,
+  };
+}
+
+// ✅ ordenação por prioridade
+export const priorityOrder: Record<Pending["priority"], number> = {
+  URGENTE: 1,
+  ALTA: 2,
+  MEDIA: 3,
+  BAIXA: 4,
+};

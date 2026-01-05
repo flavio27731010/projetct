@@ -16,11 +16,24 @@ export default function Login() {
         const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
         if (error) setMsg(error.message);
       } else {
-        const { error } = await supabase.auth.signUp({ email, password: pass });
-        if (error) setMsg(error.message);
-        else setMsg("Conta criada! Agora faça login.");
-        setMode("login");
-      }
+  // ✅ permite criar conta APENAS com domínio @samarco.com
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!normalizedEmail.endsWith("@samarco.com")) {
+    setMsg("❌ Apenas e-mails com domínio @samarco.com podem criar conta.");
+    return;
+  }
+
+  const { error } = await supabase.auth.signUp({
+    email: normalizedEmail,
+    password: pass,
+  });
+
+  if (error) setMsg(error.message);
+  else setMsg("✅ Conta criada! Agora faça login.");
+  setMode("login");
+}
+
     } finally {
       setLoading(false);
     }
@@ -75,7 +88,7 @@ export default function Login() {
             opacity: 0.7,
           }}
         >
-          Desenvolvido por Flávio Assis - 2026 ©
+          © 2026 - Flávio Assis
         </p>
       </div>
     </div>

@@ -1,10 +1,19 @@
 import { supabase } from "./supabase";
 import { db } from "./db";
 
-export async function syncNow(userId: string) {
-  if (!navigator.onLine) return;
+export type SyncResult = {
+  ok: boolean;
+  synced: number;
+  error?: string;
+};
+
+export async function syncNow(userId: string): Promise<SyncResult> {
+  if (!navigator.onLine) {
+    return { ok: false, synced: 0, error: "Sem internet" };
+  }
 
   const queue = await db.syncQueue.orderBy("createdAt").toArray();
+  let syncedCount = 0;
 
   for (const item of queue) {
     if (item.type === "UPSERT_REPORT") {
@@ -22,7 +31,7 @@ export async function syncNow(userId: string) {
         user_id: userId,
         date: report.date,
         shift: report.shift,
-        shift_letter: report.shiftLetter,
+        shift_letter: (report as any).shiftLetter ?? null,
         start_time: report.startTime,
         end_time: report.endTime,
         signature_name: report.signatureName,
@@ -31,7 +40,7 @@ export async function syncNow(userId: string) {
         sync_version: report.syncVersion
       });
 
-      if (repErr) continue;
+      if (repErr) return { ok: false, synced: syncedCount, error: repErr.message };
 
       await supabase.from("activities").delete().eq("report_id", report.id);
       await supabase.from("pendings").delete().eq("report_id", report.id);
@@ -45,10 +54,10 @@ export async function syncNow(userId: string) {
             description: a.description
           }))
         );
-        if (error) continue;
+        if (error) return { ok: false, synced: syncedCount, error: error.message };
       }
 
-      // ✅ envia TODAS as pendências (NOVA + HERDADA)
+      // ✅ enviar NOVAS e HERDADAS (para ter histórico completo no supabase)
       if (pendings.length) {
         const { error } = await supabase.from("pendings").insert(
           pendings.map(p => ({
@@ -58,17 +67,26 @@ export async function syncNow(userId: string) {
             description: p.description,
             status: p.status,
             origin: p.origin,
-
-            // ✅ campos essenciais pra evitar duplicação e garantir herança correta
-            pending_key: p.pendingKey,
             source_pending_id: p.sourcePendingId ?? null
           }))
         );
-        if (error) continue;
+        if (error) return { ok: false, synced: syncedCount, error: error.message };
       }
 
       await db.reports.update(report.id, { status: "SINCRONIZADO" });
       await db.syncQueue.delete(item.id);
+      syncedCount++;
+    }
+
+    if (item.type === "DELETE_REPORT") {
+      await supabase.from("activities").delete().eq("report_id", item.reportId);
+      await supabase.from("pendings").delete().eq("report_id", item.reportId);
+      await supabase.from("reports").delete().eq("id", item.reportId);
+
+      await db.syncQueue.delete(item.id);
+      syncedCount++;
     }
   }
+
+  return { ok: true, synced: syncedCount };
 }
