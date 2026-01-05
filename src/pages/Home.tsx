@@ -37,14 +37,19 @@ export default function Home() {
     const list = await db.reports.orderBy("updatedAt").reverse().toArray();
     setReports(list);
 
-    // ✅ pendências abertas por relatório (rápido e útil)
-    const allPendings = await db.pendings.toArray();
+    // ✅ pendências abertas por relatório (CORRETO - conta cada relatório separadamente)
     const map: Record<string, number> = {};
-    for (const p of allPendings) {
-      if (p.status !== "RESOLVIDO") {
-        map[p.reportId] = (map[p.reportId] ?? 0) + 1;
-      }
+
+    for (const r of list) {
+      const count = await db.pendings
+        .where("reportId")
+        .equals(r.id)
+        .and((p) => p.status !== "RESOLVIDO")
+        .count();
+
+      map[r.id] = count;
     }
+
     setOpenCountMap(map);
 
     // ✅ status do sync
@@ -221,57 +226,54 @@ export default function Home() {
 
         <div className="actions" style={{ marginTop: -6 }}>
           <button
-  className="btn secondary"
-  title="Sincronizar agora"
-  onClick={syncNowManual}
-  style={{
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 0,
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.10)",
-    backdropFilter: "blur(10px)",
-    WebkitBackdropFilter: "blur(10px)",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
-    transition: "all 0.18s ease",
-  }}
-  onMouseEnter={(e) => {
-    const el = e.currentTarget as HTMLButtonElement;
-    el.style.transform = "translateY(-1px)";
-    el.style.boxShadow = "0 10px 22px rgba(0,0,0,0.20)";
-    el.style.borderColor = "rgba(255,255,255,0.22)";
-  }}
-  onMouseLeave={(e) => {
-    const el = e.currentTarget as HTMLButtonElement;
-    el.style.transform = "translateY(0px)";
-    el.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
-    el.style.borderColor = "rgba(255,255,255,0.10)";
-  }}
->
-  <svg
-  xmlns="http://www.w3.org/2000/svg"
-  width="18"
-  height="18"
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  strokeWidth="2"
-  strokeLinecap="round"
-  strokeLinejoin="round"
->
-  <path d="M21 2v6h-6" />
-  <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-  <path d="M3 22v-6h6" />
-  <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-</svg>
-
-
-</button>
-
+            className="btn secondary"
+            title="Sincronizar agora"
+            onClick={syncNowManual}
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 12,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              backdropFilter: "blur(10px)",
+              WebkitBackdropFilter: "blur(10px)",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
+              transition: "all 0.18s ease",
+            }}
+            onMouseEnter={(e) => {
+              const el = e.currentTarget as HTMLButtonElement;
+              el.style.transform = "translateY(-1px)";
+              el.style.boxShadow = "0 10px 22px rgba(0,0,0,0.20)";
+              el.style.borderColor = "rgba(255,255,255,0.22)";
+            }}
+            onMouseLeave={(e) => {
+              const el = e.currentTarget as HTMLButtonElement;
+              el.style.transform = "translateY(0px)";
+              el.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
+              el.style.borderColor = "rgba(255,255,255,0.10)";
+            }}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 2v6h-6" />
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M3 22v-6h6" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
+          </button>
 
           {!selectMode ? (
             <button className="btn danger" style={smallBtnStyle} onClick={enterDeleteMode}>
@@ -294,20 +296,19 @@ export default function Home() {
           )}
 
           <Link
-  className="btn"
-  to="/new"
-  style={{
-    ...smallBtnStyle,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    lineHeight: 1,
-    textDecoration: "none",
-  }}
->
-  Novo Relatório
-</Link>
-
+            className="btn"
+            to="/new"
+            style={{
+              ...smallBtnStyle,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              lineHeight: 1,
+              textDecoration: "none",
+            }}
+          >
+            Novo Relatório
+          </Link>
         </div>
       </div>
 
@@ -365,7 +366,7 @@ export default function Home() {
                   </strong>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {openCount > 0 && <span className="badge">📌 Pendentes: {openCount}</span>}
+                    {openCount > 0 && <span className="badge">⏳ Pendência: {openCount}</span>}
                     <span className="badge">Status: {r.status}</span>
                   </div>
                 </div>

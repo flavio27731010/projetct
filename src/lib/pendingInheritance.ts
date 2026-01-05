@@ -2,47 +2,29 @@ import { db } from "./db";
 import { nowISO, uuid } from "./utils";
 
 export async function inheritOpenPendings(newReportId: string) {
-  // ✅ Busca relatórios ordenados por updatedAt (porque createdAt não é indexado no Dexie)
-  const reports = await db.reports.orderBy("updatedAt").toArray();
+  // ✅ pega TODAS as pendências do banco
+  const allPendings = await db.pendings.toArray();
 
-  // ✅ remove o relatório recém-criado
-  const previousReports = reports.filter((r) => r.id !== newReportId);
-
-  // ✅ pega o último FINALIZADO
-  const previousReport = [...previousReports]
-    .reverse()
-    .find((r) => r.status === "FINALIZADO");
-
-  // Se não existir finalizado, não herda nada
-  if (!previousReport) return;
-
-  // ✅ pega pendências do relatório anterior
-  const prevPendings = await db.pendings
-    .where("reportId")
-    .equals(previousReport.id)
-    .toArray();
-
-  // ✅ só herda pendências abertas
-  const openPendings = prevPendings.filter((p) => p.status !== "RESOLVIDO");
+  // ✅ filtra somente as que ainda estão abertas (não resolvidas)
+  const openPendings = allPendings.filter((p) => p.status !== "RESOLVIDO");
   if (!openPendings.length) return;
 
-  // ✅ pega pendências que já existem no relatório novo (anti-duplicação)
-  const alreadyInNew = await db.pendings
-    .where("reportId")
-    .equals(newReportId)
-    .toArray();
+  // ✅ pega pendências que já existem no relatório novo (para evitar duplicação)
+  const existingInNew = await db.pendings.where("reportId").equals(newReportId).toArray();
+  const existingKeys = new Set(existingInNew.map((p) => p.pendingKey));
 
-  const existingKeys = new Set(alreadyInNew.map((p) => p.pendingKey));
+  // ✅ garante que herda APENAS 1 por pendingKey (sem duplicar)
+  const uniqueMap = new Map<string, typeof openPendings[number]>();
+  for (const p of openPendings) {
+    if (!uniqueMap.has(p.pendingKey)) {
+      uniqueMap.set(p.pendingKey, p);
+    }
+  }
 
-  // ✅ copia para o novo relatório como HERDADA (sem duplicar)
-  const inherited = openPendings
+  // ✅ cria as cópias herdadas no novo relatório
+  const inherited = Array.from(uniqueMap.values())
     .map((p) => {
-      const sourceId = p.sourcePendingId ?? p.id;
-      const pendingKey = p.pendingKey ?? sourceId;
-
-      // ✅ evita duplicação
-      if (existingKeys.has(pendingKey)) return null;
-      existingKeys.add(pendingKey);
+      const sourceId = p.sourcePendingId ?? p.pendingKey ?? p.id;
 
       return {
         ...p,
@@ -51,16 +33,16 @@ export async function inheritOpenPendings(newReportId: string) {
         origin: "HERDADA" as const,
         createdAt: nowISO(),
 
-        // ✅ identidade global (sempre igual ao original)
-        pendingKey,
-
-        // ✅ ID original real (para sumir pra sempre quando resolver)
+        // ✅ sempre aponta para o original
         sourcePendingId: sourceId,
+
+        // ✅ mantém a identidade global (fundamental)
+        pendingKey: sourceId,
       };
     })
-    .filter(Boolean);
+    .filter((p) => !existingKeys.has(p.pendingKey)); // ✅ evita duplicação no relatório novo
 
   if (!inherited.length) return;
 
-  await db.pendings.bulkAdd(inherited as any);
+  await db.pendings.bulkAdd(inherited);
 }
