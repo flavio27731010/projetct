@@ -33,6 +33,23 @@ export default function Home() {
   // 🔒 senha simples para exclusão
   const DELETE_PASSWORD = "Fs277310@";
 
+  // ✅ REMOVE DUPLICATAS DE PENDÊNCIAS HERDADAS (rodar no boot)
+  async function cleanDuplicateInheritedPendings() {
+    const all = await db.pendings.toArray();
+    const seen = new Set<string>();
+
+    for (const p of all) {
+      if (p.origin !== "HERDADA") continue;
+
+      const key = `${p.reportId}_${p.pendingKey}`;
+      if (seen.has(key)) {
+        await db.pendings.delete(p.id);
+      } else {
+        seen.add(key);
+      }
+    }
+  }
+
   async function load() {
     const list = await db.reports.orderBy("updatedAt").reverse().toArray();
     setReports(list);
@@ -59,10 +76,56 @@ export default function Home() {
     else setSyncState("OK");
   }
 
+  // ✅ ao abrir a Home, sincroniza global e carrega
   useEffect(() => {
-    load();
+    async function boot() {
+      setSyncMsg("");
+
+      // ✅ limpa duplicatas herdadas (corrige dados antigos)
+      await cleanDuplicateInheritedPendings();
+
+      // ✅ só sincroniza se estiver logado
+      const { data } = await supabase.auth.getUser();
+      const user = data.user;
+
+      if (user) {
+        try {
+          await syncNow(); // ✅ GLOBAL
+        } catch (err: any) {
+          console.error(err);
+        }
+      }
+
+      load();
+    }
+
+    boot();
     const interval = setInterval(load, 1500);
     return () => clearInterval(interval);
+  }, []);
+
+  // ✅ sincroniza automaticamente quando voltar internet
+  useEffect(() => {
+    async function onOnline() {
+      setSyncMsg("");
+
+      const { data } = await supabase.auth.getUser();
+      const user = data.user;
+      if (!user) return;
+
+      try {
+        await syncNow(); // ✅ GLOBAL
+        setSyncMsg("✅ Internet voltou — dados sincronizados.");
+      } catch (err: any) {
+        console.error(err);
+        setSyncMsg("❌ Falha ao sincronizar quando voltou internet.");
+      }
+
+      load();
+    }
+
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   }, []);
 
   function toggleSelect(id: string) {
@@ -186,18 +249,24 @@ export default function Home() {
     load();
   }
 
+  // ✅ Sync manual GLOBAL (sem userId)
   async function syncNowManual() {
     setSyncMsg("");
+
     const { data } = await supabase.auth.getUser();
-    const userId = data.user?.id;
-    if (!userId) return;
+    const user = data.user;
 
-    const res = await syncNow(userId);
+    if (!user) {
+      setSyncMsg("❌ Você precisa estar logado para sincronizar.");
+      return;
+    }
 
-    if (!res.ok) {
-      setSyncMsg(`❌ Sync falhou: ${res.error}`);
-    } else {
-      setSyncMsg(res.synced > 0 ? `✅ Sync ok! ${res.synced} item(ns) sincronizados.` : "✅ Nada para sincronizar.");
+    try {
+      await syncNow(); // ✅ GLOBAL
+      setSyncMsg("✅ Sync concluído com sucesso!");
+    } catch (err: any) {
+      console.error(err);
+      setSyncMsg("❌ Sync falhou. Veja o console.");
     }
 
     load();
@@ -220,7 +289,19 @@ export default function Home() {
     <div className="container">
       <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <h1 className="h1" style={{ margin: 0 }}>Relatórios</h1>
+           <h1
+        style={{
+          margin: 0,
+          fontSize: "28px",
+          fontWeight: 800,
+          textTransform: "uppercase",
+          letterSpacing: "2px",
+          fontFamily: "'Poppins', sans-serif",
+        }}
+      >
+        RELATÓRIOS
+      </h1>
+      
           {renderSyncBadge()}
         </div>
 

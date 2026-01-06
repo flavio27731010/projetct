@@ -8,32 +8,37 @@ export default function Login() {
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function handle() {
+  async function handle(e?: React.FormEvent) {
+    e?.preventDefault(); // ✅ evita refresh ao apertar Enter
     setLoading(true);
     setMsg(null);
+
     try {
       if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password: pass,
+        });
         if (error) setMsg(error.message);
       } else {
-  // ✅ permite criar conta APENAS com domínio @samarco.com
-  const normalizedEmail = email.trim().toLowerCase();
+        // ✅ permite criar conta APENAS com domínio @samarco.com
+        const normalizedEmail = email.trim().toLowerCase();
 
-  if (!normalizedEmail.endsWith("@samarco.com")) {
-    setMsg("❌ Apenas e-mails com domínio @samarco.com podem criar conta.");
-    return;
-  }
+        if (!normalizedEmail.endsWith("@samarco.com")) {
+          setMsg("❌ Apenas e-mails com domínio @samarco.com podem criar conta.");
+          return;
+        }
 
-  const { error } = await supabase.auth.signUp({
-    email: normalizedEmail,
-    password: pass,
-  });
+        const { error } = await supabase.auth.signUp({
+          email: normalizedEmail,
+          password: pass,
+        });
 
-  if (error) setMsg(error.message);
-  else setMsg("✅ Conta criada! Agora faça login.");
-  setMode("login");
-}
+        if (error) setMsg(error.message);
+        else setMsg("✅ Conta criada! Agora faça login.");
 
+        setMode("login"); // ✅ volta para modo login após cadastrar
+      }
     } finally {
       setLoading(false);
     }
@@ -47,36 +52,53 @@ export default function Login() {
 
         <div className="hr" />
 
-        <div className="row">
-          <div className="col">
-            <label>Email</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@empresa.com" />
+        {/* ✅ FORM permite Enter automaticamente */}
+        <form onSubmit={handle}>
+          <div className="row">
+            <div className="col">
+              <label>Email</label>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="voce@samarco.com"
+              />
+            </div>
+
+            <div className="col">
+              <label>Senha</label>
+              <input
+                value={pass}
+                type="password"
+                onChange={(e) => setPass(e.target.value)}
+                placeholder="********"
+              />
+            </div>
           </div>
-          <div className="col">
-            <label>Senha</label>
-            <input value={pass} type="password" onChange={(e) => setPass(e.target.value)} placeholder="********" />
+
+          {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
+
+          <div className="actions" style={{ marginTop: 12 }}>
+            <button
+              type="button" // ✅ importante: não envia o form
+              className="btn secondary"
+              onClick={() => setMode(mode === "login" ? "signup" : "login")}
+            >
+              {mode === "login" ? "Criar conta" : "Já tenho conta"}
+            </button>
+
+            <button
+              type="submit" // ✅ Enter chama esse botão
+              className="btn"
+              disabled={loading}
+              style={{
+                backgroundColor: mode === "signup" ? "#16a34a" : undefined,
+                borderColor: mode === "signup" ? "#16a34a" : undefined,
+              }}
+            >
+              {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Cadastrar"}
+            </button>
           </div>
-        </div>
-
-        {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
-
-        <div className="actions" style={{ marginTop: 12 }}>
-          <button className="btn secondary" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
-            {mode === "login" ? "Criar conta" : "Já tenho conta"}
-          </button>
-
-          <button
-            className="btn"
-            disabled={loading}
-            onClick={handle}
-            style={{
-              backgroundColor: mode === "signup" ? "#16a34a" : undefined, // ✅ verde no modo cadastro
-              borderColor: mode === "signup" ? "#16a34a" : undefined,
-            }}
-          >
-            {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Cadastrar"}
-          </button>
-        </div>
+        </form>
 
         {/* ✅ Texto no rodapé */}
         <p

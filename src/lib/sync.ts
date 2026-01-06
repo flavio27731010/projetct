@@ -1,92 +1,102 @@
-import { supabase } from "./supabase";
 import { db } from "./db";
+import { supabase } from "./supabase";
 
-export type SyncResult = {
-  ok: boolean;
-  synced: number;
-  error?: string;
-};
+export async function syncNow() {
+  // ✅ Se não estiver logado, não sincroniza
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) return;
 
-export async function syncNow(userId: string): Promise<SyncResult> {
-  if (!navigator.onLine) {
-    return { ok: false, synced: 0, error: "Sem internet" };
-  }
+  // =====================================================
+  // 1) UPLOAD: envia tudo que está na fila
+  // =====================================================
+  const queue = await db.syncQueue.toArray();
 
-  const queue = await db.syncQueue.orderBy("createdAt").toArray();
-  let syncedCount = 0;
-
-  for (const item of queue) {
-    if (item.type === "UPSERT_REPORT") {
-      const report = await db.reports.get(item.reportId);
+  for (const job of queue) {
+    // ✅ UPSERT REPORT (já existia)
+    if (job.type === "UPSERT_REPORT") {
+      const report = await db.reports.get(job.reportId);
       if (!report) {
-        await db.syncQueue.delete(item.id);
+        await db.syncQueue.delete(job.id);
         continue;
       }
 
-      const activities = await db.activities.where("reportId").equals(report.id).toArray();
-      const pendings = await db.pendings.where("reportId").equals(report.id).toArray();
+      const activities = await db.activities.where("reportId").equals(job.reportId).toArray();
+     const pendingsRaw = await db.pendings.where("reportId").equals(job.reportId).toArray();
 
-      const { error: repErr } = await supabase.from("reports").upsert({
-        id: report.id,
-        user_id: userId,
-        date: report.date,
-        shift: report.shift,
-        shift_letter: (report as any).shiftLetter ?? null,
-        start_time: report.startTime,
-        end_time: report.endTime,
-        signature_name: report.signatureName,
-        status: report.status,
-        updated_at: report.updatedAt,
-        sync_version: report.syncVersion
-      });
+// ✅ função para limpar uuid quebrado (uuid_uuid -> uuid)
+const cleanUuid = (v: any) => {
+  if (!v) return v;
+  const s = String(v);
+  return s.includes("_") ? s.split("_")[0] : s;
+};
 
-      if (repErr) return { ok: false, synced: syncedCount, error: repErr.message };
+// ✅ corrige todos os campos uuid antes de enviar
+const pendings = pendingsRaw.map((p) => ({
+  ...p,
+  id: cleanUuid(p.id),
+  reportId: cleanUuid(p.reportId),
+  pendingKey: cleanUuid(p.pendingKey),
+  sourcePendingId: p.sourcePendingId ? cleanUuid(p.sourcePendingId) : null,
+}));
 
-      await supabase.from("activities").delete().eq("report_id", report.id);
-      await supabase.from("pendings").delete().eq("report_id", report.id);
 
-      if (activities.length) {
-        const { error } = await supabase.from("activities").insert(
-          activities.map(a => ({
-            id: a.id,
-            report_id: a.reportId,
-            time: a.time,
-            description: a.description
-          }))
-        );
-        if (error) return { ok: false, synced: syncedCount, error: error.message };
+      // ✅ UPSERT global
+      const r1 = await supabase.from("reports").upsert(report);
+
+      // ✅ só envia se tiver registros
+      const r2 = activities.length
+        ? await supabase.from("activities").upsert(activities)
+        : { error: null };
+
+      const r3 = pendings.length
+        ? await supabase.from("pendings").upsert(pendings)
+        : { error: null };
+
+      // Se deu erro, para aqui (não apaga da fila)
+      if (r1.error || r2.error || r3.error) {
+        console.error("Erro no sync:", r1.error || r2.error || r3.error);
+        return;
       }
 
-      // ✅ enviar NOVAS e HERDADAS (para ter histórico completo no supabase)
-      if (pendings.length) {
-        const { error } = await supabase.from("pendings").insert(
-          pendings.map(p => ({
-            id: p.id,
-            report_id: p.reportId,
-            priority: p.priority,
-            description: p.description,
-            status: p.status,
-            origin: p.origin,
-            source_pending_id: p.sourcePendingId ?? null
-          }))
-        );
-        if (error) return { ok: false, synced: syncedCount, error: error.message };
-      }
-
-      await db.reports.update(report.id, { status: "SINCRONIZADO" });
-      await db.syncQueue.delete(item.id);
-      syncedCount++;
+      // ✅ remove job da fila se deu certo
+      await db.syncQueue.delete(job.id);
     }
 
-    if (item.type === "DELETE_REPORT") {
-      await supabase.from("activities").delete().eq("report_id", item.reportId);
-      await supabase.from("pendings").delete().eq("report_id", item.reportId);
-      await supabase.from("reports").delete().eq("id", item.reportId);
+    // ✅ DELETE REPORT (NOVO - necessário para limpar a fila)
+    if (job.type === "DELETE_REPORT") {
+      const reportId = job.reportId;
 
-      await db.syncQueue.delete(item.id);
-      syncedCount++;
+      // ✅ deleta no Supabase (ordem importa)
+      const d1 = await supabase.from("activities").delete().eq("reportId", reportId);
+      const d2 = await supabase.from("pendings").delete().eq("reportId", reportId);
+      const d3 = await supabase.from("reports").delete().eq("id", reportId);
+
+      if (d1.error || d2.error || d3.error) {
+        console.error("Erro deletando no Supabase:", d1.error || d2.error || d3.error);
+        return;
+      }
+
+      // ✅ remove job da fila se deu certo
+      await db.syncQueue.delete(job.id);
     }
   }
 
-  return { ok: true, synced: syncedCount };
+  // =====================================================
+  // 2) DOWNLOAD: baixa tudo do Supabase (para todos)
+  // =====================================================
+  const { data: reports, error: e1 } = await supabase.from("reports").select("*");
+  const { data: activities, error: e2 } = await supabase.from("activities").select("*");
+  const { data: pendings, error: e3 } = await supabase.from("pendings").select("*");
+
+  if (e1 || e2 || e3) {
+    console.error("Erro baixando dados:", e1 || e2 || e3);
+    return;
+  }
+
+  // =====================================================
+  // 3) GRAVA no IndexedDB local (cache offline)
+  // =====================================================
+  if (reports?.length) await db.reports.bulkPut(reports);
+  if (activities?.length) await db.activities.bulkPut(activities);
+  if (pendings?.length) await db.pendings.bulkPut(pendings);
 }

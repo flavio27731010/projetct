@@ -4,7 +4,6 @@ import { db } from "../lib/db";
 import type { Activity, Pending, Report } from "../lib/db";
 import { formatDateBR, nowHHmm, nowISO, uuid } from "../lib/utils";
 import { generateReportPDF } from "../lib/pdf";
-import { supabase } from "../lib/supabase";
 import { syncNow } from "../lib/sync";
 
 export default function ReportDetail() {
@@ -202,11 +201,8 @@ export default function ReportDetail() {
       createdAt: nowISO(),
     });
 
-    const { data } = await supabase.auth.getUser();
-    const userId = data.user?.id;
-
-    if (userId) await syncNow(userId);
-
+    await syncNow();
+    
     load();
 
     alert(
@@ -235,9 +231,7 @@ export default function ReportDetail() {
           </div>
 
           <div className="actions">
-            <button className="btn secondary" onClick={() => nav("/")}>
-              Voltar
-            </button>
+            
 
             <button className="btn secondary" onClick={savePDF}>
               Salvar PDF
@@ -246,7 +240,7 @@ export default function ReportDetail() {
             {/* ✅ Só aparece no celular */}
             {isMobile && (
               <button className="btn secondary" onClick={sharePDFWhatsApp}>
-                Compartilhar WhatsApp
+                ➦ WhatsApp 
               </button>
             )}
 
@@ -290,11 +284,17 @@ export default function ReportDetail() {
                 />
               </div>
             </div>
-
+            
             <div className="actions" style={{ marginTop: 10 }}>
               <button className="btn" onClick={addActivity} disabled={!actDesc.trim()}>
                 Adicionar
               </button>
+              <button
+              className="btn secondary"
+        onClick={() => setTab("PENDENCIAS")}
+               >
+               Próximo »
+                </button>
             </div>
 
             <div className="hr" />
@@ -348,9 +348,21 @@ export default function ReportDetail() {
             </div>
 
             <div className="actions" style={{ marginTop: 10 }}>
+              <button
+  className="btn secondary"
+  onClick={() => setTab("ATIVIDADES")}
+>
+ « Anterior
+</button>
               <button className="btn" onClick={addPending} disabled={!penDesc.trim()}>
                 Adicionar
               </button>
+              <button
+  className="btn secondary"
+  onClick={() => setTab("REVISAO")}
+>
+ Próximo »
+</button>
             </div>
 
             <div className="hr" />
@@ -370,7 +382,7 @@ export default function ReportDetail() {
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {p.status !== "RESOLVIDO" && (
                         <button className="btn secondary" onClick={() => markPendingResolved(p.id)}>
-                          Marcar Resolvido
+                          Resolvido
                         </button>
                       )}
                       <button className="btn danger" onClick={() => removePending(p.id)}>
@@ -441,8 +453,10 @@ export default function ReportDetail() {
                 />
               </div>
             </div>
+            
 
             <div className="hr" />
+            
 
             <div className="badge">Atividades: {activities.length}</div>{" "}
             <div className="badge">Pendências: {pendings.length}</div>{" "}
@@ -450,22 +464,14 @@ export default function ReportDetail() {
 
             <div className="hr" />
 
-            <div className="actions">
-              <button className="btn secondary" onClick={savePDF}>
-                Salvar PDF
-              </button>
+                  <button
+  className="btn secondary"
+  onClick={() => setTab("PENDENCIAS")}
+  style={{ marginLeft: "auto" }}
+>
+  « Anterior
+</button>
 
-              {/* ✅ Só aparece no celular */}
-              {isMobile && (
-                <button className="btn secondary" onClick={sharePDFWhatsApp}>
-                  Compartilhar WhatsApp
-                </button>
-              )}
-
-              <button className="btn" onClick={finalizeAndSync} disabled={!requiredOk}>
-                Finalizar & Sync
-              </button>
-            </div>
           </>
         )}
       </div>
