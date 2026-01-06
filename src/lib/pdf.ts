@@ -12,7 +12,11 @@ export async function generateReportPDF(report: Report, activities: Activity[], 
   doc.text(`RDO - Relatório de Turno`, 14, 18);
 
   doc.setFontSize(11);
-  doc.text(`Data: ${formatDateBR(report.date)} | Turno: ${report.shift} | Letra: ${(report as any).shiftLetter ?? "-"}`, 14, 26);
+  doc.text(
+    `Data: ${formatDateBR(report.date)} | Turno: ${report.shift} | Letra: ${(report as any).shiftLetter ?? "-"}`,
+    14,
+    26
+  );
   doc.text(`Assinatura: ${report.signatureName || "-"}`, 14, 33);
   doc.text(`Status: ${report.status}`, 14, 40);
 
@@ -25,16 +29,16 @@ export async function generateReportPDF(report: Report, activities: Activity[], 
     head: [["Hora", "Descrição"]],
     body: activities
       .sort((a, b) => a.time.localeCompare(b.time))
-      .map(a => [a.time, a.description]),
+      .map((a) => [a.time, a.description]),
   });
 
   // ✅ pendências separadas
   const pendentes = pendings
-    .filter(p => p.status !== "RESOLVIDO")
+    .filter((p) => p.status !== "RESOLVIDO")
     .sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
   const resolvidas = pendings
-    .filter(p => p.status === "RESOLVIDO")
+    .filter((p) => p.status === "RESOLVIDO")
     .sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
   let y = (doc as any).lastAutoTable.finalY + 12;
@@ -45,7 +49,7 @@ export async function generateReportPDF(report: Report, activities: Activity[], 
   autoTable(doc, {
     startY: y + 4,
     head: [["Prioridade", "Origem", "Descrição", "Status"]],
-    body: pendentes.map(p => [p.priority, p.origin, p.description, p.status]),
+    body: pendentes.map((p) => [p.priority, p.origin, p.description, p.status]),
   });
 
   y = (doc as any).lastAutoTable.finalY + 12;
@@ -56,7 +60,7 @@ export async function generateReportPDF(report: Report, activities: Activity[], 
   autoTable(doc, {
     startY: y + 4,
     head: [["Prioridade", "Origem", "Descrição", "Status"]],
-    body: resolvidas.map(p => [p.priority, p.origin, p.description, p.status]),
+    body: resolvidas.map((p) => [p.priority, p.origin, p.description, p.status]),
     didParseCell: (data) => {
       if (data.section === "body" && data.column.index === 3) {
         const statusText = String(data.cell.text?.[0] ?? "").toUpperCase();
@@ -65,8 +69,14 @@ export async function generateReportPDF(report: Report, activities: Activity[], 
           data.cell.styles.fontStyle = "bold";
         }
       }
-    }
+    },
   });
 
-  doc.save(`RDO_${report.shift}_${formatDateBR(report.date)}.pdf`);
+  // ✅ nome do arquivo
+  const filename = `RDO_${report.shift}_${formatDateBR(report.date)}.pdf`;
+
+  // ✅ retorna o pdf como Blob
+  const blob = doc.output("blob");
+
+  return { blob, filename };
 }

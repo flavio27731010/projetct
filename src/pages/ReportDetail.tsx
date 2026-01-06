@@ -16,6 +16,12 @@ export default function ReportDetail() {
   const [pendings, setPendings] = useState<Pending[]>([]);
   const [tab, setTab] = useState<"ATIVIDADES" | "PENDENCIAS" | "REVISAO">("ATIVIDADES");
 
+  // ✅ Detecta se é celular (Android/iPhone)
+  const isMobile = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  }, []);
+
   // New activity
   const [actDesc, setActDesc] = useState("");
   const [actTime, setActTime] = useState(nowHHmm());
@@ -31,13 +37,11 @@ export default function ReportDetail() {
   // Campos obrigatórios:
   // - assinatura
   // - pelo menos 1 atividade
-  // - pelo menos 1 pendência
   const requiredOk = useMemo(() => {
-  if (!report) return false;
-  const hasActs = activities.length > 0;
-  return report.signatureName.trim().length > 2 && hasActs;
-}, [report, activities]);
-
+    if (!report) return false;
+    const hasActs = activities.length > 0;
+    return report.signatureName.trim().length > 2 && hasActs;
+  }, [report, activities]);
 
   async function load() {
     if (!id) return;
@@ -121,65 +125,99 @@ export default function ReportDetail() {
     load();
   }
 
- async function markPendingResolved(pId: string) {
-  const p = await db.pendings.get(pId);
-  if (!p) return;
+  async function markPendingResolved(pId: string) {
+    const p = await db.pendings.get(pId);
+    if (!p) return;
 
-  const now = nowISO();
+    const now = nowISO();
 
-  // ✅ resolve TODAS as pendências da mesma identidade global
-  // (original + todas as cópias herdadas existentes)
-  await db.pendings
-    .where("pendingKey")
-    .equals(p.pendingKey)
-    .modify({ status: "RESOLVIDO" });
+    // ✅ resolve TODAS as pendências da mesma identidade global
+    // (original + todas as cópias herdadas existentes)
+    await db.pendings.where("pendingKey").equals(p.pendingKey).modify({ status: "RESOLVIDO" });
 
-  // ✅ NÃO DELETA MAIS!
-  // -> Assim ela continua visível no relatório atual
-  // -> E aparece no PDF como RESOLVIDO
+    await db.reports.update(id!, {
+      updatedAt: now,
+      syncVersion: (report?.syncVersion ?? 1) + 1,
+    });
 
-  await db.reports.update(id!, {
-    updatedAt: now,
-    syncVersion: (report?.syncVersion ?? 1) + 1,
-  });
-
-  load();
-}
-
-
- async function finalizeAndSync() {
-  if (!report || !id) return;
-
-  if (!requiredOk) {
-   alert("Preencha os campos obrigatórios: assinatura e ao menos 1 atividade realizada.");
-    return;
+    load();
   }
 
-  await db.reports.update(id, { status: "FINALIZADO", updatedAt: nowISO() });
+  // ✅ Salvar PDF
+  async function savePDF() {
+    if (!report) return;
 
-  await db.syncQueue.add({
-    id: uuid(),
-    type: "UPSERT_REPORT",
-    reportId: id,
-    createdAt: nowISO()
-  });
+    const { blob, filename } = await generateReportPDF(report, activities, pendings);
 
-  const { data } = await supabase.auth.getUser();
-  const userId = data.user?.id;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
-  if (userId) await syncNow(userId);
+  // ✅ Compartilhar WhatsApp (só aparece no celular)
+  async function sharePDFWhatsApp() {
+    if (!report) return;
 
-  load();
+    const { blob, filename } = await generateReportPDF(report, activities, pendings);
 
-  alert(
-    navigator.onLine
-      ? "Relatório finalizado e sincronizado!"
-      : "Relatório finalizado. Será sincronizado quando voltar internet."
-  );
+    const file = new File([blob], filename, { type: "application/pdf" });
 
-  // ✅ Volta automaticamente para a Home
-  nav("/");
-}
+    // ✅ abre menu de compartilhar (WhatsApp aparece no celular)
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        title: "Relatório de Turno",
+        text: "Segue o relatório em PDF.",
+        files: [file],
+      });
+    } else {
+      // ✅ fallback: baixa o PDF
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      alert("Seu celular não suporta compartilhamento direto. PDF foi baixado.");
+    }
+  }
+
+  async function finalizeAndSync() {
+    if (!report || !id) return;
+
+    if (!requiredOk) {
+      alert("Preencha os campos obrigatórios: assinatura e ao menos 1 atividade realizada.");
+      return;
+    }
+
+    await db.reports.update(id, { status: "FINALIZADO", updatedAt: nowISO() });
+
+    await db.syncQueue.add({
+      id: uuid(),
+      type: "UPSERT_REPORT",
+      reportId: id,
+      createdAt: nowISO(),
+    });
+
+    const { data } = await supabase.auth.getUser();
+    const userId = data.user?.id;
+
+    if (userId) await syncNow(userId);
+
+    load();
+
+    alert(
+      navigator.onLine
+        ? "Relatório finalizado e sincronizado!"
+        : "Relatório finalizado. Será sincronizado quando voltar internet."
+    );
+
+    // ✅ Volta automaticamente para a Home
+    nav("/");
+  }
 
   if (!report) return <div className="container">Carregando relatório...</div>;
 
@@ -192,7 +230,7 @@ export default function ReportDetail() {
               {report.shiftLetter} — {report.shift} — {formatDateBR(report.date)}
             </h1>
             <div className="muted">
-             Horário: {report.startTime} → {report.endTime} | Turno: {report.shiftLetter} | Status: {report.status}
+              Horário: {report.startTime} → {report.endTime} | Turno: {report.shiftLetter} | Status: {report.status}
             </div>
           </div>
 
@@ -200,9 +238,18 @@ export default function ReportDetail() {
             <button className="btn secondary" onClick={() => nav("/")}>
               Voltar
             </button>
-            <button className="btn secondary" onClick={async () => await generateReportPDF(report, activities, pendings)}>
-              Gerar PDF
+
+            <button className="btn secondary" onClick={savePDF}>
+              Salvar PDF
             </button>
+
+            {/* ✅ Só aparece no celular */}
+            {isMobile && (
+              <button className="btn secondary" onClick={sharePDFWhatsApp}>
+                Compartilhar WhatsApp
+              </button>
+            )}
+
             <button className="btn" onClick={finalizeAndSync} disabled={!requiredOk}>
               Finalizar & Sync
             </button>
@@ -378,10 +425,9 @@ export default function ReportDetail() {
             <div className="hr" />
             <h2 className="h2">Revisão</h2>
 
-           <p className="muted">
-  Obrigatórios: <strong>assinatura</strong> e pelo menos <strong>1 atividade</strong>.
-</p>
-
+            <p className="muted">
+              Obrigatórios: <strong>assinatura</strong> e pelo menos <strong>1 atividade</strong>.
+            </p>
 
             <div className="row">
               <div className="col">
@@ -405,9 +451,17 @@ export default function ReportDetail() {
             <div className="hr" />
 
             <div className="actions">
-              <button className="btn secondary" onClick={() => generateReportPDF(report, activities, pendings)}>
-                Gerar PDF (offline)
+              <button className="btn secondary" onClick={savePDF}>
+                Salvar PDF
               </button>
+
+              {/* ✅ Só aparece no celular */}
+              {isMobile && (
+                <button className="btn secondary" onClick={sharePDFWhatsApp}>
+                  Compartilhar WhatsApp
+                </button>
+              )}
+
               <button className="btn" onClick={finalizeAndSync} disabled={!requiredOk}>
                 Finalizar & Sync
               </button>
