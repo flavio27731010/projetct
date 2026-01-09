@@ -2,8 +2,6 @@ import Dexie from "dexie";
 import type { Table } from "dexie";
 
 export type Shift = "DIURNO" | "NOTURNO";
-
-// ✅ agora aceita 4x4 e 3x2
 export type ShiftLetter =
   | "4x4 A"
   | "4x4 B"
@@ -27,6 +25,8 @@ export type Report = {
   createdAt: string;
   updatedAt: string;
   syncVersion: number;
+
+  deletedAt?: string | null; // ✅ SOFT DELETE GLOBAL
 };
 
 export type Activity = {
@@ -39,7 +39,7 @@ export type Activity = {
 
 export type Pending = {
   id: string;
-  pendingKey: string; // ✅ identidade global da pendência (não muda entre turnos)
+  pendingKey: string;
 
   reportId: string;
   priority: "BAIXA" | "MEDIA" | "ALTA" | "URGENTE";
@@ -48,7 +48,7 @@ export type Pending = {
   origin: "HERDADA" | "NOVA";
   createdAt: string;
 
-  sourcePendingId?: string; // ✅ aponta para a pendência original
+  sourcePendingId?: string;
 };
 
 export type SyncQueueItem = {
@@ -67,19 +67,28 @@ class AppDB extends Dexie {
   constructor() {
     super("rdo_db");
 
-    this.version(2)
+    // ✅ Atualizou version para incluir deletedAt no reports
+    this.version(3)
       .stores({
-        reports: "id, userId, date, shift, shiftLetter, status, updatedAt",
+        reports: "id, userId, date, shift, shiftLetter, status, updatedAt, deletedAt",
         activities: "id, reportId, createdAt",
-        pendings: "id, pendingKey, reportId, [reportId+pendingKey], createdAt",
+        pendings: "id, pendingKey, reportId, createdAt",
         syncQueue: "id, type, reportId, createdAt",
       })
       .upgrade(async (tx) => {
-        // ✅ Migração automática: pendências antigas ganham pendingKey = id
+        // ✅ Migração: pendências antigas ganham pendingKey = id (se faltar)
         const pendings = await tx.table("pendings").toArray();
         for (const p of pendings) {
           if (!("pendingKey" in p)) {
             await tx.table("pendings").update(p.id, { pendingKey: p.id });
+          }
+        }
+
+        // ✅ Migração: reports antigos ganham deletedAt = null (se faltar)
+        const reports = await tx.table("reports").toArray();
+        for (const r of reports) {
+          if (!("deletedAt" in r)) {
+            await tx.table("reports").update(r.id, { deletedAt: null });
           }
         }
       });

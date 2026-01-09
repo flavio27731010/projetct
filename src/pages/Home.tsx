@@ -21,7 +21,7 @@ export default function Home() {
   const [syncState, setSyncState] = useState<"OK" | "PENDING" | "OFFLINE">("OK");
   const [syncMsg, setSyncMsg] = useState<string>("");
 
-  // ✅ desfazer exclusão
+  // ✅ desfazer exclusão (somente local por 5s)
   const [undoData, setUndoData] = useState<{
     reports: Report[];
     pendings: Pending[];
@@ -33,28 +33,14 @@ export default function Home() {
   // 🔒 senha simples para exclusão
   const DELETE_PASSWORD = "Fs277310@";
 
-  // ✅ REMOVE DUPLICATAS DE PENDÊNCIAS HERDADAS (rodar no boot)
-  async function cleanDuplicateInheritedPendings() {
-    const all = await db.pendings.toArray();
-    const seen = new Set<string>();
-
-    for (const p of all) {
-      if (p.origin !== "HERDADA") continue;
-
-      const key = `${p.reportId}_${p.pendingKey}`;
-      if (seen.has(key)) {
-        await db.pendings.delete(p.id);
-      } else {
-        seen.add(key);
-      }
-    }
-  }
-
   async function load() {
-    const list = await db.reports.orderBy("updatedAt").reverse().toArray();
+    // ✅ NÃO CARREGA REPORTS DELETADOS
+    const all = await db.reports.orderBy("updatedAt").reverse().toArray();
+    const list = all.filter((r) => !r.deletedAt);
+
     setReports(list);
 
-    // ✅ pendências abertas por relatório (CORRETO - conta cada relatório separadamente)
+    // ✅ pendências abertas por relatório
     const map: Record<string, number> = {};
 
     for (const r of list) {
@@ -69,7 +55,6 @@ export default function Home() {
 
     setOpenCountMap(map);
 
-    // ✅ status do sync
     const queue = await db.syncQueue.count();
     if (!navigator.onLine) setSyncState("OFFLINE");
     else if (queue > 0) setSyncState("PENDING");
@@ -81,16 +66,12 @@ export default function Home() {
     async function boot() {
       setSyncMsg("");
 
-      // ✅ limpa duplicatas herdadas (corrige dados antigos)
-      await cleanDuplicateInheritedPendings();
-
-      // ✅ só sincroniza se estiver logado
       const { data } = await supabase.auth.getUser();
       const user = data.user;
 
       if (user) {
         try {
-          await syncNow(); // ✅ GLOBAL
+          await syncNow();
         } catch (err: any) {
           console.error(err);
         }
@@ -114,7 +95,7 @@ export default function Home() {
       if (!user) return;
 
       try {
-        await syncNow(); // ✅ GLOBAL
+        await syncNow();
         setSyncMsg("✅ Internet voltou — dados sincronizados.");
       } catch (err: any) {
         console.error(err);
@@ -155,7 +136,6 @@ export default function Home() {
     setSelectedIds(new Set());
   }
 
-  // ✅ filtro do histórico
   const filteredReports = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return reports;
@@ -166,7 +146,6 @@ export default function Home() {
     });
   }, [query, reports]);
 
-  // ✅ selecionar todos os relatórios visíveis (respeita a busca)
   function selectAllVisible() {
     const ids = filteredReports.map((r) => r.id);
     setSelectedIds(new Set(ids));
@@ -186,26 +165,36 @@ export default function Home() {
       return;
     }
 
-    const ok = confirm(`⚠️ Você irá excluir ${selectedIds.size} relatório(s). Deseja continuar?`);
+    const ok = confirm(`⚠️ Você irá excluir ${selectedIds.size} relatório(s) GLOBALMENTE. Deseja continuar?`);
     if (!ok) return;
 
     const ids = Array.from(selectedIds);
+    const t = nowISO();
 
     try {
-      // ✅ captura dados para UNDO
+      // ✅ captura dados para UNDO local
       const reportsToDelete = (await db.reports.bulkGet(ids)).filter(Boolean) as Report[];
       const activitiesToDelete = await db.activities.where("reportId").anyOf(ids).toArray();
       const pendingsToDelete = await db.pendings.where("reportId").anyOf(ids).toArray();
 
-      const t = nowISO();
       const queueItems = ids.map((reportId) => ({
         id: uuid(),
-        type: "DELETE_REPORT" as const,
+        type: "UPSERT_REPORT" as const,
         reportId,
         createdAt: t,
       }));
 
       await db.transaction("rw", db.reports, db.activities, db.pendings, db.syncQueue, async () => {
+        // ✅ soft delete global
+        for (const rid of ids) {
+          await db.reports.update(rid, {
+            deletedAt: t,
+            updatedAt: t,
+            syncVersion: 999999,
+          });
+        }
+
+        // ✅ remove localmente pra sumir da tela
         await db.activities.where("reportId").anyOf(ids).delete();
         await db.pendings.where("reportId").anyOf(ids).delete();
         await db.syncQueue.bulkAdd(queueItems);
@@ -215,7 +204,7 @@ export default function Home() {
       cancelDeleteMode();
       load();
 
-      // ✅ toast UNDO (5s)
+      // ✅ toast UNDO (5s) (somente local)
       const timeoutId = setTimeout(() => setUndoData(null), 5000);
       setUndoData({
         reports: reportsToDelete,
@@ -236,11 +225,19 @@ export default function Home() {
     clearTimeout(undoData.timeoutId);
 
     await db.transaction("rw", db.reports, db.activities, db.pendings, db.syncQueue, async () => {
-      await db.reports.bulkAdd(undoData.reports);
+      // restaura localmente os relatórios (sem deletedAt)
+      const restoredReports = undoData.reports.map((r) => ({
+        ...r,
+        deletedAt: null,
+        updatedAt: nowISO(),
+        syncVersion: (r.syncVersion ?? 1) + 1,
+      }));
+
+      await db.reports.bulkAdd(restoredReports);
       await db.activities.bulkAdd(undoData.activities);
       await db.pendings.bulkAdd(undoData.pendings);
 
-      // remove as deleções agendadas
+      // remove os jobs agendados
       const idsToRemove = undoData.queueItems.map((i) => i.id);
       await db.syncQueue.bulkDelete(idsToRemove);
     });
@@ -249,7 +246,7 @@ export default function Home() {
     load();
   }
 
-  // ✅ Sync manual GLOBAL (sem userId)
+  // ✅ Sync manual GLOBAL
   async function syncNowManual() {
     setSyncMsg("");
 
@@ -262,7 +259,7 @@ export default function Home() {
     }
 
     try {
-      await syncNow(); // ✅ GLOBAL
+      await syncNow();
       setSyncMsg("✅ Sync concluído com sucesso!");
     } catch (err: any) {
       console.error(err);
@@ -289,19 +286,19 @@ export default function Home() {
     <div className="container">
       <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-           <h1
-        style={{
-          margin: 0,
-          fontSize: "28px",
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: "2px",
-          fontFamily: "'Poppins', sans-serif",
-        }}
-      >
-        RELATÓRIOS
-      </h1>
-      
+          <h1
+            style={{
+              margin: 0,
+              fontSize: "28px",
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "2px",
+              fontFamily: "'Poppins', sans-serif",
+            }}
+          >
+            RELATÓRIOS
+          </h1>
+
           {renderSyncBadge()}
         </div>
 
@@ -325,35 +322,8 @@ export default function Home() {
               boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
               transition: "all 0.18s ease",
             }}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.transform = "translateY(-1px)";
-              el.style.boxShadow = "0 10px 22px rgba(0,0,0,0.20)";
-              el.style.borderColor = "rgba(255,255,255,0.22)";
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.transform = "translateY(0px)";
-              el.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
-              el.style.borderColor = "rgba(255,255,255,0.10)";
-            }}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 2v6h-6" />
-              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-              <path d="M3 22v-6h6" />
-              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-            </svg>
+            🔄
           </button>
 
           {!selectMode ? (
@@ -393,14 +363,12 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ✅ mensagem do sync */}
       {syncMsg && (
         <div className="card" style={{ marginTop: 10 }}>
           <p style={{ margin: 0 }}>{syncMsg}</p>
         </div>
       )}
 
-      {/* ✅ busca */}
       <div className="card" style={{ marginTop: 10 }}>
         <label>Buscar no histórico</label>
         <input
@@ -410,7 +378,6 @@ export default function Home() {
         />
       </div>
 
-      {/* ✅ selecionar todos */}
       {selectMode && (
         <div className="card" style={{ marginTop: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -491,7 +458,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ✅ TOAST DESFAZER */}
       {undoData && (
         <div
           className="card"
@@ -508,7 +474,7 @@ export default function Home() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
             <div>
               <strong>Relatórios excluídos.</strong>
-              <div className="muted">Você pode desfazer em 5 segundos.</div>
+              <div className="muted">Você pode desfazer em 5 segundos (apenas local).</div>
             </div>
             <button className="btn secondary" style={smallBtnStyle} onClick={undoDelete}>
               Desfazer

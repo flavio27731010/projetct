@@ -7,14 +7,14 @@ export async function generateReportPDF(report: Report, activities: Activity[], 
   const theme = is3x2
     ? {
         mode: "3x2" as const,
-        primary: [0, 60, 160] as [number, number, number], // ✅ azul forte
+        primary: [0, 80, 130] as [number, number, number], // ✅ azul forte
         light: [235, 244, 255] as [number, number, number],
         title: "Relatório de Turno (3x2)",
         filePrefix: "RDO_3x2",
       }
     : {
         mode: "4x4" as const,
-        primary: [40, 40, 40] as [number, number, number], // ✅ cinza moderno
+        primary: [0, 40, 130] as [number, number, number], // ✅ cinza moderno
         light: [245, 245, 245] as [number, number, number],
         title: "Relatório de Turno (4x4)",
         filePrefix: "RDO_4x4",
