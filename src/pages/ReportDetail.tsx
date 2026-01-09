@@ -21,13 +21,15 @@ export default function ReportDetail() {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   }, []);
 
-  // New activity
-  const [actDesc, setActDesc] = useState("");
+  // ✅ New activity
   const [actTime, setActTime] = useState(nowHHmm());
+  const [actType, setActType] = useState("");
+  const [actDetail, setActDetail] = useState("");
 
-  // New pending
-  const [penDesc, setPenDesc] = useState("");
+  // ✅ New pending (AGORA COM SELECT + DETALHE)
   const [penPriority, setPenPriority] = useState<Pending["priority"]>("MEDIA");
+  const [penType, setPenType] = useState("");
+  const [penDetail, setPenDetail] = useState("");
 
   // Separação de pendências por origem
   const inheritedPendings = pendings.filter((p) => p.origin === "HERDADA");
@@ -59,14 +61,19 @@ export default function ReportDetail() {
     return () => clearInterval(interval);
   }, [id]);
 
+  // ✅ Add Activity (select + detalhe)
   async function addActivity() {
-    if (!id || !actDesc.trim()) return;
+    if (!id || !actType.trim()) return;
+
+    const fullDescription = actDetail.trim()
+      ? `${actType} — ${actDetail.trim()}`
+      : actType;
 
     await db.activities.add({
       id: uuid(),
       reportId: id,
       time: actTime,
-      description: actDesc.trim(),
+      description: fullDescription,
       createdAt: nowISO(),
     });
 
@@ -75,22 +82,28 @@ export default function ReportDetail() {
       syncVersion: (report?.syncVersion ?? 1) + 1,
     });
 
-    setActDesc("");
+    setActType("");
+    setActDetail("");
     setActTime(nowHHmm());
     load();
   }
 
+  // ✅ Add Pending (select + detalhe)
   async function addPending() {
-    if (!id || !penDesc.trim()) return;
+    if (!id || !penType.trim()) return;
 
     const newId = uuid();
 
+    const fullPendingDesc = penDetail.trim()
+      ? `${penType} — ${penDetail.trim()}`
+      : penType;
+
     await db.pendings.add({
       id: newId,
-      pendingKey: newId, // ✅ identidade global
+      pendingKey: newId,
       reportId: id,
       priority: penPriority,
-      description: penDesc.trim(),
+      description: fullPendingDesc,
       status: "PENDENTE",
       origin: "NOVA",
       createdAt: nowISO(),
@@ -101,7 +114,8 @@ export default function ReportDetail() {
       syncVersion: (report?.syncVersion ?? 1) + 1,
     });
 
-    setPenDesc("");
+    setPenType("");
+    setPenDetail("");
     setPenPriority("MEDIA");
     load();
   }
@@ -130,8 +144,6 @@ export default function ReportDetail() {
 
     const now = nowISO();
 
-    // ✅ resolve TODAS as pendências da mesma identidade global
-    // (original + todas as cópias herdadas existentes)
     await db.pendings.where("pendingKey").equals(p.pendingKey).modify({ status: "RESOLVIDO" });
 
     await db.reports.update(id!, {
@@ -164,7 +176,6 @@ export default function ReportDetail() {
 
     const file = new File([blob], filename, { type: "application/pdf" });
 
-    // ✅ abre menu de compartilhar (WhatsApp aparece no celular)
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({
         title: "Relatório de Turno",
@@ -172,7 +183,6 @@ export default function ReportDetail() {
         files: [file],
       });
     } else {
-      // ✅ fallback: baixa o PDF
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -202,7 +212,6 @@ export default function ReportDetail() {
     });
 
     await syncNow();
-    
     load();
 
     alert(
@@ -211,7 +220,6 @@ export default function ReportDetail() {
         : "Relatório finalizado. Será sincronizado quando voltar internet."
     );
 
-    // ✅ Volta automaticamente para a Home
     nav("/");
   }
 
@@ -231,16 +239,13 @@ export default function ReportDetail() {
           </div>
 
           <div className="actions">
-            
-
             <button className="btn secondary" onClick={savePDF}>
               Salvar PDF
             </button>
 
-            {/* ✅ Só aparece no celular */}
             {isMobile && (
               <button className="btn secondary" onClick={sharePDFWhatsApp}>
-                ➦ WhatsApp 
+                ➦ WhatsApp
               </button>
             )}
 
@@ -275,26 +280,37 @@ export default function ReportDetail() {
                 <label>Hora</label>
                 <input value={actTime} onChange={(e) => setActTime(e.target.value)} />
               </div>
+
               <div className="col">
                 <label>Descrição</label>
+                <select value={actType} onChange={(e) => setActType(e.target.value)}>
+                  <option value="">Selecione...</option>
+                  <option value="Granulometria a Laser">Granulometria a Laser</option>
+                  <option value="Execução">Execução</option>
+                  <option value="Preparação de Amostras">Preparação de Amostras</option>
+                  <option value="Outras Atividades">Outras Atividades</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 10 }}>
+              <div className="col">
+                <label>Detalhes / Observação</label>
                 <input
-                  value={actDesc}
-                  onChange={(e) => setActDesc(e.target.value)}
-                  placeholder="Ex: Coleta de caracterização..."
+                  value={actDetail}
+                  onChange={(e) => setActDetail(e.target.value)}
+                  placeholder="Digite livremente os detalhes da atividade..."
                 />
               </div>
             </div>
-            
+
             <div className="actions" style={{ marginTop: 10 }}>
-              <button className="btn" onClick={addActivity} disabled={!actDesc.trim()}>
+              <button className="btn" onClick={addActivity} disabled={!actType.trim()}>
                 Adicionar
               </button>
-              <button
-              className="btn secondary"
-        onClick={() => setTab("PENDENCIAS")}
-               >
-               Próximo »
-                </button>
+              <button className="btn secondary" onClick={() => setTab("PENDENCIAS")}>
+                Próximo »
+              </button>
             </div>
 
             <div className="hr" />
@@ -330,39 +346,52 @@ export default function ReportDetail() {
               <div className="col">
                 <label>Prioridade</label>
                 <select value={penPriority} onChange={(e) => setPenPriority(e.target.value as any)}>
-                  <option value="Baixa">Baixa</option>
-                  <option value="Média">Média</option>
-                  <option value="Alta">Alta</option>
-                  <option value="Urgente">Urgente</option>
+                  <option value="BAIXA">Baixa</option>
+                  <option value="MEDIA">Média</option>
+                  <option value="ALTA">Alta</option>
+                  <option value="URGENTE">Urgente</option>
                 </select>
               </div>
 
               <div className="col">
                 <label>Descrição</label>
+                <select value={penType} onChange={(e) => setPenType(e.target.value)}>
+                  <option value="">Selecione...</option>
+                  <option value="Granulometria a laser">Granulometria a laser</option>
+                  <option value="Execução">Execução</option>
+                  <option value="Preparação de Amostra">Preparação de Amostra</option>
+                   <option value="Manutenção">Manutenção</option>
+                  <option value="Amostras Pendentes">Amostras Pendentes</option>
+                  <option value="Falha de Equipamento">Falha de Equipamento</option>
+                  <option value="Calibração/Verificação">Calibração/Verificação</option>
+                  <option value="Outras Pendências">Outras Pendências</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 10 }}>
+              <div className="col">
+                <label>Detalhes / Observação</label>
                 <input
-                  value={penDesc}
-                  onChange={(e) => setPenDesc(e.target.value)}
-                  placeholder="Ex: Manutenção nos veículos..."
+                  value={penDetail}
+                  onChange={(e) => setPenDetail(e.target.value)}
+                  placeholder="Digite livremente os detalhes da pendência..."
                 />
               </div>
             </div>
 
             <div className="actions" style={{ marginTop: 10 }}>
-              <button
-  className="btn secondary"
-  onClick={() => setTab("ATIVIDADES")}
->
- « Anterior
-</button>
-              <button className="btn" onClick={addPending} disabled={!penDesc.trim()}>
+              <button className="btn secondary" onClick={() => setTab("ATIVIDADES")}>
+                « Anterior
+              </button>
+
+              <button className="btn" onClick={addPending} disabled={!penType.trim()}>
                 Adicionar
               </button>
-              <button
-  className="btn secondary"
-  onClick={() => setTab("REVISAO")}
->
- Próximo »
-</button>
+
+              <button className="btn secondary" onClick={() => setTab("REVISAO")}>
+                Próximo »
+              </button>
             </div>
 
             <div className="hr" />
@@ -453,10 +482,8 @@ export default function ReportDetail() {
                 />
               </div>
             </div>
-            
 
             <div className="hr" />
-            
 
             <div className="badge">Atividades: {activities.length}</div>{" "}
             <div className="badge">Pendências: {pendings.length}</div>{" "}
@@ -464,14 +491,9 @@ export default function ReportDetail() {
 
             <div className="hr" />
 
-                  <button
-  className="btn secondary"
-  onClick={() => setTab("PENDENCIAS")}
-  style={{ marginLeft: "auto" }}
->
-  « Anterior
-</button>
-
+            <button className="btn secondary" onClick={() => setTab("PENDENCIAS")} style={{ marginLeft: "auto" }}>
+              « Anterior
+            </button>
           </>
         )}
       </div>

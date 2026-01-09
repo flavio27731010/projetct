@@ -2,7 +2,16 @@ import Dexie from "dexie";
 import type { Table } from "dexie";
 
 export type Shift = "DIURNO" | "NOTURNO";
-export type ShiftLetter = "4x4 A" | "4x4 B" | "4x4 C" | "4x4 D";
+
+// ✅ agora aceita 4x4 e 3x2
+export type ShiftLetter =
+  | "4x4 A"
+  | "4x4 B"
+  | "4x4 C"
+  | "4x4 D"
+  | "3x2 A"
+  | "3x2 B";
+
 export type ReportStatus = "RASCUNHO" | "FINALIZADO" | "SINCRONIZADO";
 
 export type Report = {
@@ -62,7 +71,7 @@ class AppDB extends Dexie {
       .stores({
         reports: "id, userId, date, shift, shiftLetter, status, updatedAt",
         activities: "id, reportId, createdAt",
-        pendings: "id, pendingKey, reportId, createdAt", // ✅ pendingKey indexado
+        pendings: "id, pendingKey, reportId, [reportId+pendingKey], createdAt",
         syncQueue: "id, type, reportId, createdAt",
       })
       .upgrade(async (tx) => {
