@@ -30,9 +30,6 @@ export default function Home() {
     timeoutId: any;
   } | null>(null);
 
-  // 🔒 senha simples para exclusão
-  const DELETE_PASSWORD = "Fs277310@";
-
   async function load() {
     // ✅ NÃO CARREGA REPORTS DELETADOS
     const all = await db.reports.orderBy("updatedAt").reverse().toArray();
@@ -118,15 +115,8 @@ export default function Home() {
     });
   }
 
+  // ✅ SEM SENHA: entra direto no modo de exclusão
   function enterDeleteMode() {
-    const pass = prompt("🔒 Digite a senha para excluir relatórios:");
-    if (!pass) return;
-
-    if (pass !== DELETE_PASSWORD) {
-      alert("❌ Senha incorreta.");
-      return;
-    }
-
     setSelectMode(true);
     setSelectedIds(new Set());
   }
@@ -141,7 +131,8 @@ export default function Home() {
     if (!q) return reports;
 
     return reports.filter((r) => {
-      const txt = `${r.shiftLetter} ${r.shift} ${r.date} ${formatDateBR(r.date)} ${r.signatureName} ${r.status}`.toLowerCase();
+      const txt =
+        `${r.shiftLetter} ${r.shift} ${r.date} ${formatDateBR(r.date)} ${r.signatureName} ${r.status}`.toLowerCase();
       return txt.includes(q);
     });
   }, [query, reports]);
@@ -161,11 +152,13 @@ export default function Home() {
 
   async function deleteSelected() {
     if (selectedIds.size === 0) {
-      alert("Selecione pelo menos 1 relatório para excluir.");
+      alert("Selecione pelo menos 1 relatório em rascunho para excluir.");
       return;
     }
 
-    const ok = confirm(`⚠️ Você irá excluir ${selectedIds.size} relatório(s) GLOBALMENTE. Deseja continuar?`);
+    const ok = confirm(
+      `⚠️ Você irá excluir ${selectedIds.size} relatório(s) GLOBALMENTE. Deseja continuar?`
+    );
     if (!ok) return;
 
     const ids = Array.from(selectedIds);
@@ -213,7 +206,6 @@ export default function Home() {
         queueItems,
         timeoutId,
       });
-
     } catch (err: any) {
       alert("❌ Erro ao excluir. Veja o console.");
       console.error(err);
@@ -391,7 +383,9 @@ export default function Home() {
               style={{ width: 18, height: 18 }}
             />
             <strong>{allVisibleSelected ? "Desmarcar todos" : "Selecionar todos os relatórios exibidos"}</strong>
-            <span className="muted">({selectedIds.size}/{filteredReports.length})</span>
+            <span className="muted">
+              ({selectedIds.size}/{filteredReports.length})
+            </span>
           </div>
         </div>
       )}
