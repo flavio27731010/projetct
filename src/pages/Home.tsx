@@ -115,7 +115,6 @@ export default function Home() {
     });
   }
 
-  // ✅ SEM SENHA: entra direto no modo de exclusão
   function enterDeleteMode() {
     setSelectMode(true);
     setSelectedIds(new Set());
@@ -170,6 +169,7 @@ export default function Home() {
       const activitiesToDelete = await db.activities.where("reportId").anyOf(ids).toArray();
       const pendingsToDelete = await db.pendings.where("reportId").anyOf(ids).toArray();
 
+      // ✅ jobs (reusar esse array no undo)
       const queueItems = ids.map((reportId) => ({
         id: uuid(),
         type: "UPSERT_REPORT" as const,
@@ -178,20 +178,22 @@ export default function Home() {
       }));
 
       await db.transaction("rw", db.reports, db.activities, db.pendings, db.syncQueue, async () => {
-        // ✅ soft delete global
+        // ✅ soft delete: mantém o report no Dexie (não bulkDelete!)
         for (const rid of ids) {
+          const curr = await db.reports.get(rid);
           await db.reports.update(rid, {
             deletedAt: t,
             updatedAt: t,
-            syncVersion: 999999,
+            syncVersion: (curr?.syncVersion ?? 0) + 1,
           });
         }
 
-        // ✅ remove localmente pra sumir da tela
+        // ✅ limpar dados locais associados (opcional)
         await db.activities.where("reportId").anyOf(ids).delete();
         await db.pendings.where("reportId").anyOf(ids).delete();
+
+        // ✅ agenda sync (vai subir o report com deletedAt)
         await db.syncQueue.bulkAdd(queueItems);
-        await db.reports.bulkDelete(ids);
       });
 
       cancelDeleteMode();
@@ -217,19 +219,20 @@ export default function Home() {
     clearTimeout(undoData.timeoutId);
 
     await db.transaction("rw", db.reports, db.activities, db.pendings, db.syncQueue, async () => {
-      // restaura localmente os relatórios (sem deletedAt)
+      // ✅ restaura localmente os relatórios (sem deletedAt)
       const restoredReports = undoData.reports.map((r) => ({
         ...r,
         deletedAt: null,
         updatedAt: nowISO(),
-        syncVersion: (r.syncVersion ?? 1) + 1,
+        syncVersion: (r.syncVersion ?? 0) + 1,
       }));
 
-      await db.reports.bulkAdd(restoredReports);
-      await db.activities.bulkAdd(undoData.activities);
-      await db.pendings.bulkAdd(undoData.pendings);
+      // ✅ PUT (não ADD) pra evitar erro se já existir
+      await db.reports.bulkPut(restoredReports);
+      await db.activities.bulkPut(undoData.activities);
+      await db.pendings.bulkPut(undoData.pendings);
 
-      // remove os jobs agendados
+      // ✅ remove os jobs agendados
       const idsToRemove = undoData.queueItems.map((i) => i.id);
       await db.syncQueue.bulkDelete(idsToRemove);
     });
@@ -382,7 +385,9 @@ export default function Home() {
               }}
               style={{ width: 18, height: 18 }}
             />
-            <strong>{allVisibleSelected ? "Desmarcar todos" : "Selecionar todos os relatórios exibidos"}</strong>
+            <strong>
+              {allVisibleSelected ? "Desmarcar todos" : "Selecionar todos os relatórios exibidos"}
+            </strong>
             <span className="muted">
               ({selectedIds.size}/{filteredReports.length})
             </span>

@@ -26,14 +26,27 @@ export default function ReportDetail() {
   const [actType, setActType] = useState("");
   const [actDetail, setActDetail] = useState("");
 
-  // ✅ New pending (AGORA COM SELECT + DETALHE)
+  // ✅ New pending
   const [penPriority, setPenPriority] = useState<Pending["priority"]>("MEDIA");
   const [penType, setPenType] = useState("");
   const [penDetail, setPenDetail] = useState("");
 
+  // ✅ Edit Activity
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [editActTime, setEditActTime] = useState("");
+  const [editActDesc, setEditActDesc] = useState("");
+
+  // ✅ Edit Pending
+  const [editingPendingId, setEditingPendingId] = useState<string | null>(null);
+  const [editPenPriority, setEditPenPriority] = useState<Pending["priority"]>("MEDIA");
+  const [editPenDesc, setEditPenDesc] = useState("");
+
   // Separação de pendências por origem
   const inheritedPendings = pendings.filter((p) => p.origin === "HERDADA");
   const newPendings = pendings.filter((p) => p.origin === "NOVA");
+
+  // 🔒 trava tudo após FINALIZADO
+  const isLocked = report?.status === "FINALIZADO";
 
   // Campos obrigatórios:
   // - assinatura
@@ -43,6 +56,15 @@ export default function ReportDetail() {
     const hasActs = activities.length > 0;
     return report.signatureName.trim().length > 2 && hasActs;
   }, [report, activities]);
+
+  async function bumpReportVersion() {
+    if (!id) return;
+    const curr = await db.reports.get(id);
+    await db.reports.update(id, {
+      updatedAt: nowISO(),
+      syncVersion: (curr?.syncVersion ?? 0) + 1,
+    });
+  }
 
   async function load() {
     if (!id) return;
@@ -63,11 +85,10 @@ export default function ReportDetail() {
 
   // ✅ Add Activity (select + detalhe)
   async function addActivity() {
+    if (isLocked) return;
     if (!id || !actType.trim()) return;
 
-    const fullDescription = actDetail.trim()
-      ? `${actType} — ${actDetail.trim()}`
-      : actType;
+    const fullDescription = actDetail.trim() ? `${actType} — ${actDetail.trim()}` : actType;
 
     await db.activities.add({
       id: uuid(),
@@ -77,10 +98,7 @@ export default function ReportDetail() {
       createdAt: nowISO(),
     });
 
-    await db.reports.update(id, {
-      updatedAt: nowISO(),
-      syncVersion: (report?.syncVersion ?? 1) + 1,
-    });
+    await bumpReportVersion();
 
     setActType("");
     setActDetail("");
@@ -90,13 +108,11 @@ export default function ReportDetail() {
 
   // ✅ Add Pending (select + detalhe)
   async function addPending() {
+    if (isLocked) return;
     if (!id || !penType.trim()) return;
 
     const newId = uuid();
-
-    const fullPendingDesc = penDetail.trim()
-      ? `${penType} — ${penDetail.trim()}`
-      : penType;
+    const fullPendingDesc = penDetail.trim() ? `${penType} — ${penDetail.trim()}` : penType;
 
     await db.pendings.add({
       id: newId,
@@ -109,10 +125,7 @@ export default function ReportDetail() {
       createdAt: nowISO(),
     });
 
-    await db.reports.update(id, {
-      updatedAt: nowISO(),
-      syncVersion: (report?.syncVersion ?? 1) + 1,
-    });
+    await bumpReportVersion();
 
     setPenType("");
     setPenDetail("");
@@ -121,36 +134,71 @@ export default function ReportDetail() {
   }
 
   async function removeActivity(actId: string) {
+    if (isLocked) return;
     await db.activities.delete(actId);
-    await db.reports.update(id!, {
-      updatedAt: nowISO(),
-      syncVersion: (report?.syncVersion ?? 1) + 1,
-    });
+    await bumpReportVersion();
     load();
   }
 
   async function removePending(pId: string) {
+    if (isLocked) return;
     await db.pendings.delete(pId);
-    await db.reports.update(id!, {
-      updatedAt: nowISO(),
-      syncVersion: (report?.syncVersion ?? 1) + 1,
-    });
+    await bumpReportVersion();
     load();
   }
 
   async function markPendingResolved(pId: string) {
+    if (isLocked) return;
     const p = await db.pendings.get(pId);
-    if (!p) return;
-
-    const now = nowISO();
+    if (!p || !id) return;
 
     await db.pendings.where("pendingKey").equals(p.pendingKey).modify({ status: "RESOLVIDO" });
 
-    await db.reports.update(id!, {
-      updatedAt: now,
-      syncVersion: (report?.syncVersion ?? 1) + 1,
+    await bumpReportVersion();
+    load();
+  }
+
+  async function startEditActivity(a: Activity) {
+    if (isLocked) return;
+    setEditingActivityId(a.id);
+    setEditActTime(a.time);
+    setEditActDesc(a.description);
+  }
+
+  async function saveEditActivity(aId: string) {
+    if (isLocked) return;
+    if (!id) return;
+
+    await db.activities.update(aId, {
+      time: editActTime,
+      description: editActDesc.trim(),
     });
 
+    await bumpReportVersion();
+
+    setEditingActivityId(null);
+    load();
+  }
+
+  async function startEditPending(p: Pending) {
+    if (isLocked) return;
+    setEditingPendingId(p.id);
+    setEditPenPriority(p.priority);
+    setEditPenDesc(p.description);
+  }
+
+  async function saveEditPending(pId: string) {
+    if (isLocked) return;
+    if (!id) return;
+
+    await db.pendings.update(pId, {
+      priority: editPenPriority,
+      description: editPenDesc.trim(),
+    });
+
+    await bumpReportVersion();
+
+    setEditingPendingId(null);
     load();
   }
 
@@ -236,6 +284,12 @@ export default function ReportDetail() {
             <div className="muted">
               Horário: {report.startTime} → {report.endTime} | Turno: {report.shiftLetter} | Status: {report.status}
             </div>
+
+            {isLocked && (
+              <div className="badge" style={{ marginTop: 8 }}>
+                🔒 Relatório finalizado — Edição bloqueada
+              </div>
+            )}
           </div>
 
           <div className="actions">
@@ -249,7 +303,7 @@ export default function ReportDetail() {
               </button>
             )}
 
-            <button className="btn" onClick={finalizeAndSync} disabled={!requiredOk}>
+            <button className="btn" onClick={finalizeAndSync} disabled={!requiredOk || isLocked}>
               Finalizar & Sync
             </button>
           </div>
@@ -278,12 +332,12 @@ export default function ReportDetail() {
             <div className="row">
               <div className="col">
                 <label>Hora</label>
-                <input value={actTime} onChange={(e) => setActTime(e.target.value)} />
+                <input value={actTime} onChange={(e) => setActTime(e.target.value)} disabled={!!isLocked} />
               </div>
 
               <div className="col">
                 <label>Descrição</label>
-                <select value={actType} onChange={(e) => setActType(e.target.value)}>
+                <select value={actType} onChange={(e) => setActType(e.target.value)} disabled={!!isLocked}>
                   <option value="">Selecione...</option>
                   <option value="Granulometria a Laser">Granulometria a Laser</option>
                   <option value="Execução">Execução</option>
@@ -300,12 +354,13 @@ export default function ReportDetail() {
                   value={actDetail}
                   onChange={(e) => setActDetail(e.target.value)}
                   placeholder="Digite livremente os detalhes da atividade..."
+                  disabled={!!isLocked}
                 />
               </div>
             </div>
 
             <div className="actions" style={{ marginTop: 10 }}>
-              <button className="btn" onClick={addActivity} disabled={!actType.trim()}>
+              <button className="btn" onClick={addActivity} disabled={!!isLocked || !actType.trim()}>
                 Adicionar
               </button>
               <button className="btn secondary" onClick={() => setTab("PENDENCIAS")}>
@@ -321,17 +376,55 @@ export default function ReportDetail() {
 
               {activities
                 .sort((a, b) => a.time.localeCompare(b.time))
-                .map((a) => (
-                  <div key={a.id} className="item">
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                      <strong>{a.time}</strong>
-                      <button className="btn danger" onClick={() => removeActivity(a.id)}>
-                        Remover
-                      </button>
+                .map((a) => {
+                  const isEditing = !isLocked && editingActivityId === a.id;
+
+                  return (
+                    <div key={a.id} className="item">
+                      {!isEditing ? (
+                        <>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                            <strong>{a.time}</strong>
+
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button className="btn secondary" onClick={() => startEditActivity(a)} disabled={!!isLocked}>
+                                Editar
+                              </button>
+                              <button className="btn danger" onClick={() => removeActivity(a.id)} disabled={!!isLocked}>
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="muted">{a.description}</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="row">
+                            <div className="col">
+                              <label>Hora</label>
+                              <input value={editActTime} onChange={(e) => setEditActTime(e.target.value)} />
+                            </div>
+
+                            <div className="col">
+                              <label>Descrição</label>
+                              <input value={editActDesc} onChange={(e) => setEditActDesc(e.target.value)} />
+                            </div>
+                          </div>
+
+                          <div className="actions" style={{ marginTop: 8 }}>
+                            <button className="btn" onClick={() => saveEditActivity(a.id)} disabled={!editActDesc.trim()}>
+                              Salvar
+                            </button>
+                            <button className="btn secondary" onClick={() => setEditingActivityId(null)}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <div className="muted">{a.description}</div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           </>
         )}
@@ -345,7 +438,11 @@ export default function ReportDetail() {
             <div className="row">
               <div className="col">
                 <label>Prioridade</label>
-                <select value={penPriority} onChange={(e) => setPenPriority(e.target.value as any)}>
+                <select
+                  value={penPriority}
+                  onChange={(e) => setPenPriority(e.target.value as any)}
+                  disabled={!!isLocked}
+                >
                   <option value="BAIXA">Baixa</option>
                   <option value="MEDIA">Média</option>
                   <option value="ALTA">Alta</option>
@@ -355,12 +452,12 @@ export default function ReportDetail() {
 
               <div className="col">
                 <label>Descrição</label>
-                <select value={penType} onChange={(e) => setPenType(e.target.value)}>
+                <select value={penType} onChange={(e) => setPenType(e.target.value)} disabled={!!isLocked}>
                   <option value="">Selecione...</option>
                   <option value="Granulometria a laser">Granulometria a laser</option>
                   <option value="Execução">Execução</option>
                   <option value="Preparação de Amostra">Preparação de Amostra</option>
-                   <option value="Manutenção">Manutenção</option>
+                  <option value="Manutenção">Manutenção</option>
                   <option value="Amostras Pendentes">Amostras Pendentes</option>
                   <option value="Falha de Equipamento">Falha de Equipamento</option>
                   <option value="Calibração/Verificação">Calibração/Verificação</option>
@@ -376,6 +473,7 @@ export default function ReportDetail() {
                   value={penDetail}
                   onChange={(e) => setPenDetail(e.target.value)}
                   placeholder="Digite livremente os detalhes da pendência..."
+                  disabled={!!isLocked}
                 />
               </div>
             </div>
@@ -385,7 +483,7 @@ export default function ReportDetail() {
                 « Anterior
               </button>
 
-              <button className="btn" onClick={addPending} disabled={!penType.trim()}>
+              <button className="btn" onClick={addPending} disabled={!!isLocked || !penType.trim()}>
                 Adicionar
               </button>
 
@@ -401,29 +499,73 @@ export default function ReportDetail() {
             <div className="list">
               {inheritedPendings.length === 0 && <p className="muted">Nenhuma pendência herdada.</p>}
 
-              {inheritedPendings.map((p) => (
-                <div key={p.id} className="item">
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                    <strong>
-                      {p.priority} • {p.status}
-                    </strong>
+              {inheritedPendings.map((p) => {
+                const isEditing = !isLocked && editingPendingId === p.id;
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {p.status !== "RESOLVIDO" && (
-                        <button className="btn secondary" onClick={() => markPendingResolved(p.id)}>
-                          Resolvido
-                        </button>
-                      )}
-                      <button className="btn danger" onClick={() => removePending(p.id)}>
-                        Remover
-                      </button>
-                    </div>
+                return (
+                  <div key={p.id} className="item">
+                    {!isEditing ? (
+                      <>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <strong>
+                            {p.priority} • {p.status}
+                          </strong>
+
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {!isLocked && p.status !== "RESOLVIDO" && (
+                              <button className="btn secondary" onClick={() => markPendingResolved(p.id)}>
+                                Resolvido
+                              </button>
+                            )}
+
+                            <button className="btn secondary" onClick={() => startEditPending(p)} disabled={!!isLocked}>
+                              Editar
+                            </button>
+
+                            <button className="btn danger" onClick={() => removePending(p.id)} disabled={!!isLocked}>
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="muted">{p.description}</div>
+                        <div className="badge">Herdada</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="row">
+                          <div className="col">
+                            <label>Prioridade</label>
+                            <select
+                              value={editPenPriority}
+                              onChange={(e) => setEditPenPriority(e.target.value as any)}
+                            >
+                              <option value="BAIXA">Baixa</option>
+                              <option value="MEDIA">Média</option>
+                              <option value="ALTA">Alta</option>
+                              <option value="URGENTE">Urgente</option>
+                            </select>
+                          </div>
+
+                          <div className="col">
+                            <label>Descrição</label>
+                            <input value={editPenDesc} onChange={(e) => setEditPenDesc(e.target.value)} />
+                          </div>
+                        </div>
+
+                        <div className="actions" style={{ marginTop: 8 }}>
+                          <button className="btn" onClick={() => saveEditPending(p.id)} disabled={!editPenDesc.trim()}>
+                            Salvar
+                          </button>
+                          <button className="btn secondary" onClick={() => setEditingPendingId(null)}>
+                            Cancelar
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
-
-                  <div className="muted">{p.description}</div>
-                  <div className="badge">Herdada</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="hr" />
@@ -433,29 +575,73 @@ export default function ReportDetail() {
             <div className="list">
               {newPendings.length === 0 && <p className="muted">Nenhuma pendência nova.</p>}
 
-              {newPendings.map((p) => (
-                <div key={p.id} className="item">
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                    <strong>
-                      {p.priority} • {p.status}
-                    </strong>
+              {newPendings.map((p) => {
+                const isEditing = !isLocked && editingPendingId === p.id;
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {p.status !== "RESOLVIDO" && (
-                        <button className="btn secondary" onClick={() => markPendingResolved(p.id)}>
-                          Marcar Resolvido
-                        </button>
-                      )}
-                      <button className="btn danger" onClick={() => removePending(p.id)}>
-                        Remover
-                      </button>
-                    </div>
+                return (
+                  <div key={p.id} className="item">
+                    {!isEditing ? (
+                      <>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <strong>
+                            {p.priority} • {p.status}
+                          </strong>
+
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {!isLocked && p.status !== "RESOLVIDO" && (
+                              <button className="btn secondary" onClick={() => markPendingResolved(p.id)}>
+                                Marcar Resolvido
+                              </button>
+                            )}
+
+                            <button className="btn secondary" onClick={() => startEditPending(p)} disabled={!!isLocked}>
+                              Editar
+                            </button>
+
+                            <button className="btn danger" onClick={() => removePending(p.id)} disabled={!!isLocked}>
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="muted">{p.description}</div>
+                        <div className="badge">Nova</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="row">
+                          <div className="col">
+                            <label>Prioridade</label>
+                            <select
+                              value={editPenPriority}
+                              onChange={(e) => setEditPenPriority(e.target.value as any)}
+                            >
+                              <option value="BAIXA">Baixa</option>
+                              <option value="MEDIA">Média</option>
+                              <option value="ALTA">Alta</option>
+                              <option value="URGENTE">Urgente</option>
+                            </select>
+                          </div>
+
+                          <div className="col">
+                            <label>Descrição</label>
+                            <input value={editPenDesc} onChange={(e) => setEditPenDesc(e.target.value)} />
+                          </div>
+                        </div>
+
+                        <div className="actions" style={{ marginTop: 8 }}>
+                          <button className="btn" onClick={() => saveEditPending(p.id)} disabled={!editPenDesc.trim()}>
+                            Salvar
+                          </button>
+                          <button className="btn secondary" onClick={() => setEditingPendingId(null)}>
+                            Cancelar
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
-
-                  <div className="muted">{p.description}</div>
-                  <div className="badge">Nova</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -475,8 +661,11 @@ export default function ReportDetail() {
                 <label>Assinatura (Nome)</label>
                 <input
                   value={report.signatureName}
+                  disabled={!!isLocked}
                   onChange={async (e) => {
+                    if (isLocked) return;
                     await db.reports.update(report.id, { signatureName: e.target.value, updatedAt: nowISO() });
+                    await bumpReportVersion();
                     load();
                   }}
                 />
