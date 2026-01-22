@@ -192,7 +192,7 @@ export default function App() {
           alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
-          flexWrap: "wrap",
+          flexWrap: "nowrap",
         }}
       >
         {/* ✅ botão pequeno de início */}
@@ -252,9 +252,36 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {/* ✅ Sync (igual ao da Home) */}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="badge" title={syncMsg || ""}>
-                <center>{syncState === "OFFLINE" ? "🔴 Offline" : syncState === "PENDING" ? "🟠 Pendente" : "🟢 Sicronizado"}</center>
-              </span>
+              <span
+  className="badge"
+  title={syncMsg || ""}
+  style={{
+    fontSize: 11,
+    padding: "4px 8px",
+    lineHeight: "14px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    whiteSpace: "nowrap",
+  }}
+>
+  <span
+    style={{
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      display: "inline-block",
+      background:
+        syncState === "OFFLINE"
+          ? "#ef4444"
+          : syncState === "PENDING"
+          ? "#f59e0b"
+          : "#22c55e",
+    }}
+  />
+  {syncState === "OFFLINE" ? "Offline" : syncState === "PENDING" ? "Pendente" : "Sync OK"}
+</span>
+
 
               <button
                 className="btn secondary"
@@ -304,21 +331,33 @@ export default function App() {
             )}
 
             {/* ✅ botão sair (igual ao seu) */}
-            <button
-              className="btn secondary"
-              style={{
-                padding: "6px 10px",
-                fontSize: 13,
-                borderRadius: 10,
-                height: "auto",
-              }}
-              onClick={async () => {
-                await supabase.auth.signOut();
-                nav("/login");
-              }}
-            >
-             ⏻ Sair
-            </button>
+         <button
+  className="btn secondary"
+  title="Sair"
+  style={{
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.10)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
+    boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
+    transition: "all 0.18s ease",
+    whiteSpace: "nowrap",
+  }}
+  onClick={async () => {
+    await supabase.auth.signOut();
+    nav("/login");
+  }}
+>
+  ⏻
+</button>
+
           </div>
         )}
       </div>
