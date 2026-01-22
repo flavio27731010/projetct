@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { db } from "../lib/db";
-import type { Pending, Report } from "../lib/db";
+import type { Activity, Pending, Report } from "../lib/db";
 import { formatDateBR, nowISO, uuid } from "../lib/utils";
 import { supabase } from "../lib/supabase";
 import { syncNow } from "../lib/sync";
+import { generateReportPDF } from "../lib/pdf";
 
 export default function Home() {
   const [reports, setReports] = useState<Report[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // ✅ Detecta se é celular (Android/iPhone)
+  const isMobile = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  }, []);
 
   // ✅ Busca
   const [query, setQuery] = useState("");
@@ -18,7 +25,8 @@ export default function Home() {
   const [openCountMap, setOpenCountMap] = useState<Record<string, number>>({});
 
   // ✅ indicador de sync
-  const [syncState, setSyncState] = useState<"OK" | "PENDING" | "OFFLINE">("OK");
+  const [, setSyncState] = useState<"OK" | "PENDING" | "OFFLINE">("OK");
+
   const [syncMsg, setSyncMsg] = useState<string>("");
 
   // ✅ desfazer exclusão (somente local por 5s)
@@ -241,28 +249,47 @@ export default function Home() {
     load();
   }
 
-  // ✅ Sync manual GLOBAL
-  async function syncNowManual() {
-    setSyncMsg("");
-
-    const { data } = await supabase.auth.getUser();
-    const user = data.user;
-
-    if (!user) {
-      setSyncMsg("❌ Você precisa estar logado para sincronizar.");
+  // ✅ Compartilhar WhatsApp (gera PDF local e usa Web Share API quando disponível)
+  async function shareReportWhatsApp(reportId: string) {
+    const report = await db.reports.get(reportId);
+    if (!report) return;
+    if (report.status !== "SINCRONIZADO") {
+      alert("⚠️ Para compartilhar no WhatsApp, finalize e sincronize o relatório primeiro.");
       return;
     }
 
+    const activities = await db.activities.where("reportId").equals(reportId).toArray();
+    const pendings = await db.pendings.where("reportId").equals(reportId).toArray();
+
+    const { blob, filename } = await generateReportPDF(report, activities as Activity[], pendings as Pending[]);
+    const file = new File([blob], filename, { type: "application/pdf" });
+
     try {
-      await syncNow();
-      setSyncMsg("✅ Sync concluído com sucesso!");
-    } catch (err: any) {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: "Relatório de Turno",
+          text: "Segue o relatório em PDF.",
+          files: [file],
+        });
+        return;
+      }
+    } catch (err) {
+      // segue fallback
       console.error(err);
-      setSyncMsg("❌ Sync falhou. Veja o console.");
     }
 
-    load();
+    // Fallback: baixa o PDF (alguns aparelhos não permitem compartilhar arquivo)
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    alert("Seu dispositivo não suportou compartilhamento direto. O PDF foi baixado.");
   }
+
+  // (botão de sync agora fica no cabeçalho global - App.tsx)
 
   const smallBtnStyle: React.CSSProperties = {
     padding: "6px 10px",
@@ -270,12 +297,6 @@ export default function Home() {
     borderRadius: 10,
     height: "auto",
   };
-
-  function renderSyncBadge() {
-    if (syncState === "OFFLINE") return <span className="badge">🔴 Offline</span>;
-    if (syncState === "PENDING") return <span className="badge">🟠 Pendente de Sync</span>;
-    return <span className="badge">🟢 Sincronizado</span>;
-  }
 
   return (
     <div className="container">
@@ -294,34 +315,10 @@ export default function Home() {
             RELATÓRIOS
           </h1>
 
-          {renderSyncBadge()}
+          {/* ✅ REMOVIDO: {renderSyncBadge()} */}
         </div>
 
-        <div className="actions" style={{ marginTop: -6 }}>
-          <button
-            className="btn secondary"
-            title="Sincronizar agora"
-            onClick={syncNowManual}
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 12,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 0,
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              backdropFilter: "blur(10px)",
-              WebkitBackdropFilter: "blur(10px)",
-              boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
-              transition: "all 0.18s ease",
-            }}
-          >
-            🔄
-          </button>
-
-          {!selectMode ? (
+        <div className="actions" style={{ marginTop: -6 }}>          {!selectMode ? (
             <button className="btn danger" style={smallBtnStyle} onClick={enterDeleteMode}>
               Excluir
             </button>
@@ -413,6 +410,19 @@ export default function Home() {
                   </strong>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {r.status === "SINCRONIZADO" && isMobile && (
+                      <button
+                        className="btn secondary"
+                        style={smallBtnStyle}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          shareReportWhatsApp(r.id);
+                        }}
+                      >
+                        ➦ WhatsApp
+                      </button>
+                    )}
                     {openCount > 0 && <span className="badge">⏳ Pendência: {openCount}</span>}
                     <span className="badge">Status: {r.status}</span>
                   </div>

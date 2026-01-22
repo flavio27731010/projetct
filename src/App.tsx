@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, Link, useNavigate } from "react-router-dom";
 import { supabase } from "./lib/supabase";
+import { db } from "./lib/db";
+import { syncNow } from "./lib/sync";
+import { registerSW } from "virtual:pwa-register";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import NewReport from "./pages/NewReport";
@@ -10,12 +13,103 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // ✅ PWA update banner
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updateFn, setUpdateFn] = useState<null | ((reloadPage?: boolean) => Promise<void>)>(null);
+
   // ✅ NOVO: email do usuário logado
   const [userEmail, setUserEmail] = useState<string>("");
 
   const nav = useNavigate();
 
+  // ✅ Sync global (botão disponível em todas as páginas logadas)
+  const [syncState, setSyncState] = useState<"OK" | "PENDING" | "OFFLINE">("OK");
+  const [syncMsg, setSyncMsg] = useState<string>("");
+
+  async function refreshSyncState() {
+    try {
+      const queue = await db.syncQueue.count();
+      if (!navigator.onLine) setSyncState("OFFLINE");
+      else if (queue > 0) setSyncState("PENDING");
+      else setSyncState("OK");
+    } catch {
+      // noop
+    }
+  }
+
+  async function syncNowManual() {
+    setSyncMsg("");
+    try {
+      await syncNow();
+      setSyncMsg("✅ Sync concluído!");
+    } catch (err) {
+      console.error(err);
+      setSyncMsg("❌ Falha ao sincronizar.");
+    }
+    refreshSyncState();
+  }
+
+  async function clearPwaCaches() {
+    // ⚠️ limpa SOMENTE caches do navegador (não mexe no IndexedDB/Dexie)
+    try {
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch (e) {
+      console.warn("Falha ao limpar caches:", e);
+    }
+  }
+
+  async function applyUpdate() {
+    if (!updateFn) {
+      // fallback
+      await clearPwaCaches();
+      window.location.reload();
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      // 1) limpa caches antigos (resolve casos em que fica preso em assets antigos)
+      await clearPwaCaches();
+      // 2) ativa o SW novo e recarrega
+      await updateFn(true);
+    } catch (e) {
+      console.error("Falha ao aplicar update PWA:", e);
+      window.location.reload();
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   useEffect(() => {
+    // ✅ Força limpeza de cache (resolve casos em que o usuário fica preso em JS/CSS antigos)
+    // - Só roda quando estiver ONLINE
+    // - Só roda 1 vez por sessão (evita loop de reload)
+    const HARD_KEY = "__HARD_CACHE_CLEARED__";
+    if (navigator.onLine && !sessionStorage.getItem(HARD_KEY)) {
+      sessionStorage.setItem(HARD_KEY, "1");
+      clearPwaCaches().finally(() => {
+        window.location.reload();
+      });
+      return;
+    }
+
+    // ✅ registra SW e detecta quando existe nova versão
+    const updateServiceWorker = registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        setUpdateAvailable(true);
+      },
+      onOfflineReady() {
+        // opcional: pode mostrar toast "pronto para uso offline"
+      },
+    });
+
+    setUpdateFn(() => updateServiceWorker);
+
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
 
@@ -37,12 +131,55 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // ✅ atualiza badge de sync periodicamente (leve)
+  useEffect(() => {
+    if (!session) return;
+    refreshSyncState();
+    const interval = setInterval(refreshSyncState, 1500);
+    return () => clearInterval(interval);
+  }, [session]);
+
   if (loading) return <div className="container">Carregando...</div>;
 
   const authed = !!session;
 
   return (
     <>
+      {updateAvailable && (
+        <div
+          className="card"
+          style={{
+            position: "fixed",
+            top: 12,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 9999,
+            maxWidth: 560,
+            width: "calc(100% - 24px)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <strong>🚀 Nova versão disponível</strong>
+              <div className="muted">
+                Toque em “Atualizar” para carregar a versão mais recente.
+              </div>
+            </div>
+            <button className="btn" onClick={applyUpdate} disabled={updating}>
+              {updating ? "Atualizando..." : "Atualizar"}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div
         className="container"
         style={{
@@ -108,6 +245,36 @@ export default function App() {
 
         {authed && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {/* ✅ Sync (igual ao da Home) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="badge" title={syncMsg || ""}>
+                <center>{syncState === "OFFLINE" ? "🔴 Offline" : syncState === "PENDING" ? "🟠 Pendente" : "🟢 Sicronizado"}</center>
+              </span>
+
+              <button
+                className="btn secondary"
+                title="Sincronizar agora"
+                onClick={syncNowManual}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  backdropFilter: "blur(10px)",
+                  WebkitBackdropFilter: "blur(10px)",
+                  boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
+                  transition: "all 0.18s ease",
+                }}
+              >
+                🔄
+              </button>
+            </div>
+
             {/* ✅ NOVO: badge do email */}
             {userEmail && (
               <div

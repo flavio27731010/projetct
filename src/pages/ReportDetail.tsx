@@ -46,7 +46,11 @@ export default function ReportDetail() {
   const newPendings = pendings.filter((p) => p.origin === "NOVA");
 
   // 🔒 trava tudo após FINALIZADO
-  const isLocked = report?.status === "FINALIZADO";
+  // ✅ Bloqueia edição quando o relatório já foi finalizado (mesmo depois de sincronizar)
+  const isLocked = report?.status !== "RASCUNHO";
+
+  // ✅ Só permite exportar/compartilhar após finalizar E sincronizar
+  const canExport = report?.status === "SINCRONIZADO";
 
   // Campos obrigatórios:
   // - assinatura
@@ -287,17 +291,21 @@ export default function ReportDetail() {
 
             {isLocked && (
               <div className="badge" style={{ marginTop: 8 }}>
-                🔒 Relatório finalizado — Edição bloqueada
+                {report.status === "SINCRONIZADO"
+                  ? "✅ Relatório sincronizado — Edição bloqueada"
+                  : "🔒 Relatório finalizado — Edição bloqueada"}
               </div>
             )}
           </div>
 
           <div className="actions">
-            <button className="btn secondary" onClick={savePDF}>
-              Salvar PDF
-            </button>
+            {canExport && (
+              <button className="btn secondary" onClick={savePDF}>
+                Salvar PDF
+              </button>
+            )}
 
-            {isMobile && (
+            {canExport && isMobile && (
               <button className="btn secondary" onClick={sharePDFWhatsApp}>
                 ➦ WhatsApp
               </button>

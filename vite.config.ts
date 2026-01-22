@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      // ✅ "prompt" permite mostrar aviso "Nova versão disponível" dentro do app
+      registerType: "prompt",
 
       includeAssets: [
         "favicon.ico",

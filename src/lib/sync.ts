@@ -1,7 +1,17 @@
 import { db } from "./db";
 import { supabase } from "./supabase";
 
+
+let __isSyncing = false;
+
 export async function syncNow() {
+  // ✅ evita concorrência (React StrictMode / cliques repetidos)
+  if (__isSyncing) return;
+  __isSyncing = true;
+  try {
+  // ✅ Sem internet, não tenta sincronizar (evita erro/alert spam)
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
   // ✅ Se não estiver logado, não sincroniza
   const { data } = await supabase.auth.getUser();
   const user = data.user;
@@ -31,6 +41,25 @@ export async function syncNow() {
         return s.includes("_") ? s.split("_")[0] : s;
       };
 
+      // ✅ evita erro do Postgres: ON CONFLICT DO UPDATE ... row a second time
+      //    (acontece quando o payload do upsert contém IDs duplicados no mesmo batch)
+      const dedupeById = <T extends { id: string; createdAt?: string }>(arr: T[]) => {
+        const map = new Map<string, T>();
+        for (const item of arr) {
+          const prev = map.get(item.id);
+          if (!prev) {
+            map.set(item.id, item);
+            continue;
+          }
+          // se tiver duplicado, mantém o mais recente (createdAt ISO)
+          const prevTs = prev.createdAt ?? "";
+          const curTs = item.createdAt ?? "";
+          map.set(item.id, curTs > prevTs ? item : prev);
+        }
+        return Array.from(map.values());
+      };
+
+
       const pendings = pendingsRaw.map((p) => ({
         ...p,
         id: cleanUuid(p.id),
@@ -40,24 +69,35 @@ export async function syncNow() {
       }));
 
       // ✅ UPSERT global (report pode ter deletedAt!)
-     const reportToSend: any = { ...report };
+      const reportToSend: any = { ...report };
 
 // 🔥 remove lixo/colunas antigas que podem existir no Dexie
 delete reportToSend.deletedat;
 delete reportToSend.deleted_at;
 
 // ✅ normalize deletedAt
-reportToSend.deletedAt = report.deletedAt ?? null;
+      reportToSend.deletedAt = report.deletedAt ?? null;
+
+      // ✅ Se o relatório foi FINALIZADO e subiu com sucesso, marcamos como SINCRONIZADO
+      const shouldMarkAsSynced = !reportToSend.deletedAt && report.status === "FINALIZADO";
+      if (shouldMarkAsSynced) reportToSend.status = "SINCRONIZADO";
 
 // ⚠️ se seu schema no Supabase for snake_case, ajuste aqui
 // (exemplo: userId -> userid etc). Pelo seu print, parece userId/createdAt/updatedAt iguais ao app.
 
-const r1 = await supabase
-  .from("reports")
-  .upsert(reportToSend, { onConflict: "id" });
+      const r1 = await supabase
+        .from("reports")
+        .upsert(reportToSend, { onConflict: "id" });
 
-      const r2 = activities.length ? await supabase.from("activities").upsert(activities) : { error: null };
-      const r3 = pendings.length ? await supabase.from("pendings").upsert(pendings) : { error: null };
+      const activitiesUnique = dedupeById(activities);
+      const pendingsUnique = dedupeById(pendings);
+
+      const r2 = activitiesUnique.length
+        ? await supabase.from("activities").upsert(activitiesUnique, { onConflict: "id" })
+        : { error: null };
+      const r3 = pendingsUnique.length
+        ? await supabase.from("pendings").upsert(pendingsUnique, { onConflict: "id" })
+        : { error: null };
 
     if (r1.error || r2.error || r3.error) {
   const err = r1.error || r2.error || r3.error;
@@ -67,6 +107,11 @@ const r1 = await supabase
   return;
 }
 
+
+      // ✅ Só após sucesso, refletir status no local
+      if (shouldMarkAsSynced) {
+        await db.reports.update(job.reportId, { status: "SINCRONIZADO" });
+      }
 
       await db.syncQueue.delete(job.id);
     }
@@ -124,5 +169,8 @@ const r1 = await supabase
       await db.activities.where("reportId").anyOf(deletedIds).delete();
       await db.pendings.where("reportId").anyOf(deletedIds).delete();
     });
+  }
+  } finally {
+    __isSyncing = false;
   }
 }
