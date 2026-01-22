@@ -4,6 +4,7 @@ import { supabase } from "./lib/supabase";
 import { db } from "./lib/db";
 import { syncNow } from "./lib/sync";
 import { registerSW } from "virtual:pwa-register";
+import { forceUpdateApp } from "./lib/forceUpdate";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import NewReport from "./pages/NewReport";
@@ -83,6 +84,10 @@ export default function App() {
       setUpdating(false);
     }
   }
+
+  useEffect(() => {
+  forceUpdateApp();
+}, []);
 
   useEffect(() => {
     // ✅ Força limpeza de cache (resolve casos em que o usuário fica preso em JS/CSS antigos)

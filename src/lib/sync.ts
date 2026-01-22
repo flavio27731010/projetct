@@ -170,7 +170,8 @@ delete reportToSend.deleted_at;
       await db.pendings.where("reportId").anyOf(deletedIds).delete();
     });
   }
-  } finally {
+  } 
+  finally {
     __isSyncing = false;
   }
 }
