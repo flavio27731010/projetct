@@ -38,6 +38,7 @@ export default function NewReport() {
     }
   }
 
+  
   // ✅ se for 3x2: força DIURNO e remove NOTURNO
   useEffect(() => {
     if (reportType === "3x2" && shift === "NOTURNO") {
@@ -69,9 +70,15 @@ export default function NewReport() {
     });
 
     // ✅ herda pendências automaticamente (SEM misturar 3x2 com 4x4)
-    await inheritOpenPendings(id, fullShiftLetter);
+   // ✅ herda pendências automaticamente (SEM misturar 3x2 com 4x4)
+try {
+  await inheritOpenPendings(id, fullShiftLetter);
+} catch (e) {
+  console.error("Falha ao herdar pendências:", e);
+}
 
-    nav(`/report/${id}`);
+nav(`/report/${id}`);
+
   }
 
   return (
