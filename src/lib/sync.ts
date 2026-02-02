@@ -42,15 +42,24 @@ export async function syncNow() {
       // ✅ limpa uuid quebrado SOMENTE quando vier no formato uuid_uuid (mesmo valor repetido)
       // ⚠️ NÃO pode quebrar IDs determinísticos que usam '_' (ex: `${reportId}_${pendingKey}`)
       const cleanUuid = (v: any) => {
-        if (!v) return v;
-        const s = String(v);
-        if (!s.includes("_")) return s;
+  if (!v) return v;
+  const s = String(v);
 
-        const parts = s.split("_");
-        // caso típico de bug: "uuid_uuid" (duas vezes o mesmo)
-        if (parts.length === 2 && parts[0] && parts[0] === parts[1]) return parts[0];
-        return s;
-      };
+  // se não tem underscore, ok
+  if (!s.includes("_")) return s;
+
+  const parts = s.split("_");
+
+  // ✅ caso: "uuid_uuid" (dois UUIDs diferentes)
+  // usa o SEGUNDO UUID, que é válido no Postgres
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    return parts[1];
+  }
+
+  // fallback: mantém original (evita quebrar coisa inesperada)
+  return s;
+};
+
 
       // ✅ evita erro do Postgres: ON CONFLICT DO UPDATE ... row a second time
       //    (acontece quando o payload do upsert contém IDs duplicados no mesmo batch)
