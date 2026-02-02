@@ -35,6 +35,14 @@ async function generateModernPDF(
     filePrefix: string;
   }
 ) {
+  // ✅ Segurança: evita pendência duplicada no PDF (pode ocorrer por inconsistências antigas no IndexedDB)
+  const uniquePendingsMap = new Map<string, Pending>();
+  for (const p of pendings) {
+    const key = p.sourcePendingId ?? p.pendingKey ?? p.id;
+    if (!uniquePendingsMap.has(key)) uniquePendingsMap.set(key, p);
+  }
+  pendings = Array.from(uniquePendingsMap.values());
+
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
 

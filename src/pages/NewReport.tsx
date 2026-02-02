@@ -128,7 +128,16 @@ nav(`/report/${id}`);
 
           <div className="col" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <label style={{ marginTop: 10 }}>Letra do Turno</label>
-            <select value={shiftLetter} onChange={(e) => setShiftLetter(e.target.value)}>
+            {/*
+              Em alguns navegadores mobile/PWA o <select> pode "segurar" as options anteriores.
+              O key força o remount quando o tipo muda, garantindo que o texto (3x2 / 4x4)
+              e o conjunto de letras atualize corretamente.
+            */}
+            <select
+              key={reportType}
+              value={shiftLetter}
+              onChange={(e) => setShiftLetter(e.target.value)}
+            >
               {letterOptions.map((l) => (
                 <option key={l} value={l}>
                   {reportType} {l}

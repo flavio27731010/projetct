@@ -423,7 +423,11 @@ export default function Home() {
                         ➦ WhatsApp
                       </button>
                     )}
-                    {openCount > 0 && <span className="badge">⏳ Pendência: {openCount}</span>}
+                    {openCount > 0 && (
+                      <span className="badge">
+                        ⏳ {openCount === 1 ? "Pendência" : "Pendências"}: {openCount}
+                      </span>
+                    )}
                     <span className="badge">Status: {r.status}</span>
                   </div>
                 </div>

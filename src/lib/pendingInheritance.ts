@@ -4,35 +4,56 @@ import { nowISO } from "./utils";
 /**
  * Herda pendências abertas para um novo relatório.
  * ✅ Não duplica
- * ✅ Não herda herdadas (evita cascata)
+ * ✅ Evita “cascata”/duplicação usando uma identidade raiz (sourcePendingId/pendingKey)
  * ✅ Não herda do próprio relatório novo
  * ✅ 1 pendência por pendingKey no relatório novo
- * ✅ 3x2 herda SOMENTE pendências do ÚLTIMO 3x2 (A/B)
- * ✅ 4x4 herda SOMENTE pendências do ÚLTIMO 4x4 (A/B/C/D)
+ * ✅ 3x2: herda pendências abertas do ÚLTIMO 3x2 A e do ÚLTIMO 3x2 B
+ * ✅ 4x4: herda pendências abertas do ÚLTIMO 4x4 A/B/C/D
  */
 export async function inheritOpenPendings(newReportId: string, newReportShiftLetter: ShiftLetter) {
   const newGroup = getGroupFromShiftLetter(newReportShiftLetter); // "3x2" | "4x4"
 
-  // ✅ acha o último relatório do MESMO GRUPO (ignora letra)
-  const lastSameGroupReport = await db.reports
-  .orderBy("updatedAt")
-  .reverse()
-  .filter((r) => !r.deletedAt)
-  .filter((r) => r.id !== newReportId)
-  .filter((r) => getGroupFromShiftLetter(r.shiftLetter) === newGroup)
-  .filter((r) => r.status === "SINCRONIZADO")
-  .first();
+  /**
+   * Regras desejadas (mobile/PWA):
+   * - 3x2: herdar pendências abertas de 3x2 A **e** 3x2 B
+   * - 4x4: herdar pendências abertas de 4x4 A/B/C/D
+   *
+   * Para não “perder” pendências (ficarem para trás), pegamos o ÚLTIMO relatório
+   * SINCRONIZADO de cada letra e unimos as pendências abertas.
+   */
+  const letters: Array<"A" | "B" | "C" | "D"> = newGroup === "3x2" ? ["A", "B"] : ["A", "B", "C", "D"];
 
+  // ✅ pega o último relatório SINCRONIZADO de cada letra dentro do grupo
+  const sourceReportIds: string[] = [];
+  for (const letter of letters) {
+    const shiftLetter = `${newGroup} ${letter}` as ShiftLetter;
 
-  if (!lastSameGroupReport) return;
+    const candidates = await db.reports
+      .where("shiftLetter")
+      .equals(shiftLetter)
+      .filter((r) => !r.deletedAt)
+      .filter((r) => r.id !== newReportId)
+      .filter((r) => r.status === "SINCRONIZADO")
+      .sortBy("updatedAt");
 
-  // ✅ pega somente pendências abertas e NÃO herdadas do último report do grupo
-  const sourcePendings = await db.pendings
-  .where("reportId")
-  .equals(lastSameGroupReport.id)
-  .filter((p) => p.status !== "RESOLVIDO")
-  .toArray();
+    const last = candidates.at(-1);
+    if (last) sourceReportIds.push(last.id);
+  }
 
+  if (!sourceReportIds.length) return;
+
+  // ✅ pendências abertas (de todas as letras relevantes)
+  const sourcePendings = (
+    await Promise.all(
+      sourceReportIds.map((rid) =>
+        db.pendings
+          .where("reportId")
+          .equals(rid)
+          .filter((p) => p.status !== "RESOLVIDO")
+          .toArray()
+      )
+    )
+  ).flat();
 
   if (!sourcePendings.length) return;
 
@@ -43,7 +64,8 @@ export async function inheritOpenPendings(newReportId: string, newReportShiftLet
   // ✅ garante 1 por pendingKey (sem repetir)
   const uniqueMap = new Map<string, typeof sourcePendings[number]>();
   for (const p of sourcePendings) {
-    const key = p.pendingKey ?? p.id;
+    // ✅ usa sempre a “raiz” para evitar duplicações (mesmo que já seja HERDADA)
+    const key = p.sourcePendingId ?? p.pendingKey ?? p.id;
     if (!uniqueMap.has(key)) uniqueMap.set(key, p);
   }
 
