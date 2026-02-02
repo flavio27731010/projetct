@@ -1,12 +1,10 @@
 import { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { db } from "../lib/db";
 import type { Shift, ShiftLetter } from "../lib/db";
 import { nowISO, uuid } from "../lib/utils";
 import { inheritOpenPendings } from "../lib/pendingInheritance";
 
 export default function NewReport() {
-  const nav = useNavigate();
 
   // ✅ userId obrigatório no DB
   const userId = localStorage.getItem("userId") || "offline_user";
@@ -38,12 +36,16 @@ export default function NewReport() {
     }
   }
 
-  function refreshAposCriarRelatorio() {
-  setTimeout(() => {
-    window.location.reload();
-  }, 100);
-}
   
+useEffect(() => {
+  const KEY = "__NEW_REPORT_REFRESHED__";
+
+  // ✅ recarrega apenas 1 vez por sessão (evita loop no PWA)
+  if (!sessionStorage.getItem(KEY)) {
+    sessionStorage.setItem(KEY, "1");
+    setTimeout(() => window.location.reload(), 80);
+  }
+}, []);
 
   
   // ✅ se for 3x2: força DIURNO e remove NOTURNO
@@ -84,7 +86,7 @@ try {
   console.error("Falha ao herdar pendências:", e);
 }
 
-nav(`/report/${id}`);
+  return id;
 
   }
 
@@ -180,14 +182,17 @@ nav(`/report/${id}`);
 
         <div className="actions" style={{ marginTop: 14 }}>
   <button
-    className="btn"
-    onClick={async () => {
-      await createReport();
-      refreshAposCriarRelatorio();
-    }}
-  >
-    Criar Relatório
-  </button>
+  className="btn"
+  onClick={async () => {
+    const newId = await createReport();
+    if (!newId) return;
+
+    // ✅ navegação mais confiável no PWA
+    window.location.assign(`/report/${newId}`);
+  }}
+>
+  Criar Relatório
+</button>
 </div>
 
         <div className="muted" style={{ marginTop: 10 }}>
