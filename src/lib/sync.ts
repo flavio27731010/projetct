@@ -39,11 +39,17 @@ export async function syncNow() {
       //   para que a pendência não volte em outro aparelho/login.
       const pendingsRaw = pendingsRawAll;
 
-      // ✅ limpa uuid quebrado (uuid_uuid -> uuid)
+      // ✅ limpa uuid quebrado SOMENTE quando vier no formato uuid_uuid (mesmo valor repetido)
+      // ⚠️ NÃO pode quebrar IDs determinísticos que usam '_' (ex: `${reportId}_${pendingKey}`)
       const cleanUuid = (v: any) => {
         if (!v) return v;
         const s = String(v);
-        return s.includes("_") ? s.split("_")[0] : s;
+        if (!s.includes("_")) return s;
+
+        const parts = s.split("_");
+        // caso típico de bug: "uuid_uuid" (duas vezes o mesmo)
+        if (parts.length === 2 && parts[0] && parts[0] === parts[1]) return parts[0];
+        return s;
       };
 
       // ✅ evita erro do Postgres: ON CONFLICT DO UPDATE ... row a second time
@@ -167,7 +173,83 @@ delete reportToSend.deleted_at;
   // =====================================================
   if (allReports.length) await db.reports.bulkPut(allReports);
   if (activities?.length) await db.activities.bulkPut(activities);
-  if (pendings?.length) await db.pendings.bulkPut(pendings);
+  // ✅ dedupe de pendências baixadas para evitar duplicação (ex: ID quebrado no servidor)
+  const dedupeDownloadedPendings = (arr: any[]) => {
+    const map = new Map<string, any>();
+    for (const p of arr) {
+      const key = `${p.reportId}::${p.pendingKey ?? p.sourcePendingId ?? p.id}`;
+      const prev = map.get(key);
+      if (!prev) {
+        map.set(key, p);
+        continue;
+      }
+
+      // Preferir ID determinístico com '_' (ex: `${reportId}_${pendingKey}`)
+      const prevHasUnderscore = String(prev.id ?? "").includes("_");
+      const curHasUnderscore = String(p.id ?? "").includes("_");
+      if (!prevHasUnderscore && curHasUnderscore) {
+        map.set(key, p);
+        continue;
+      }
+      if (prevHasUnderscore && !curHasUnderscore) {
+        continue;
+      }
+
+      // Desempate: mais recente por createdAt
+      const prevTs = String(prev.createdAt ?? "");
+      const curTs = String(p.createdAt ?? "");
+      if (curTs > prevTs) map.set(key, p);
+    }
+    return Array.from(map.values());
+  };
+
+  const pendingsDeduped = pendings?.length ? dedupeDownloadedPendings(pendings) : [];
+  if (pendingsDeduped.length) {
+    await db.pendings.bulkPut(pendingsDeduped);
+
+    // ✅ limpeza local: remove duplicatas que já existiam no IndexedDB
+    const reportIds = Array.from(new Set(pendingsDeduped.map((p: any) => p.reportId)));
+    await db.transaction("rw", db.pendings, async () => {
+      for (const rid of reportIds) {
+        const allLocal = await db.pendings.where("reportId").equals(rid).toArray();
+        const keep = new Map<string, any>();
+        const toDelete: string[] = [];
+
+        for (const p of allLocal) {
+          const k = `${p.reportId}::${p.pendingKey ?? p.sourcePendingId ?? p.id}`;
+          const prev = keep.get(k);
+          if (!prev) {
+            keep.set(k, p);
+            continue;
+          }
+
+          const prevHasUnderscore = String(prev.id ?? "").includes("_");
+          const curHasUnderscore = String(p.id ?? "").includes("_");
+
+          if (!prevHasUnderscore && curHasUnderscore) {
+            toDelete.push(prev.id);
+            keep.set(k, p);
+            continue;
+          }
+          if (prevHasUnderscore && !curHasUnderscore) {
+            toDelete.push(p.id);
+            continue;
+          }
+
+          const prevTs = String(prev.createdAt ?? "");
+          const curTs = String(p.createdAt ?? "");
+          if (curTs > prevTs) {
+            toDelete.push(prev.id);
+            keep.set(k, p);
+          } else {
+            toDelete.push(p.id);
+          }
+        }
+
+        if (toDelete.length) await db.pendings.bulkDelete(toDelete);
+      }
+    });
+  }
 
   // ✅ opcional: limpa localmente activities/pendings de reports deletados
   // (mas NÃO apaga o report do Dexie!)
