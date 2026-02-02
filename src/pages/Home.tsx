@@ -43,12 +43,28 @@ export default function Home() {
     const all = await db.reports.orderBy("updatedAt").reverse().toArray();
     const list = all.filter((r) => !r.deletedAt);
 
-    setReports(list);
+    // ✅ Ordena: RASCUNHO primeiro, depois data mais recente, depois updatedAt
+    const sorted = [...list].sort((a, b) => {
+      // 1) RASCUNHO sempre em primeiro
+      if (a.status !== b.status) {
+        if (a.status === "RASCUNHO") return -1;
+        if (b.status === "RASCUNHO") return 1;
+      }
+
+      // 2) data do relatório (mais recente primeiro)
+      const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+
+      // 3) desempate por updatedAt (mais recente primeiro)
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
+    setReports(sorted);
 
     // ✅ pendências abertas por relatório
     const map: Record<string, number> = {};
 
-    for (const r of list) {
+    for (const r of sorted) {
       const count = await db.pendings
         .where("reportId")
         .equals(r.id)
@@ -274,7 +290,6 @@ export default function Home() {
         return;
       }
     } catch (err) {
-      // segue fallback
       console.error(err);
     }
 
@@ -289,14 +304,35 @@ export default function Home() {
     alert("Seu dispositivo não suportou compartilhamento direto. O PDF foi baixado.");
   }
 
-  // (botão de sync agora fica no cabeçalho global - App.tsx)
-
   const smallBtnStyle: React.CSSProperties = {
     padding: "6px 10px",
     fontSize: 13,
     borderRadius: 10,
     height: "auto",
   };
+
+  // ✅ Agrupa por mês (mantém a ordem atual do filteredReports)
+  const groupedReports = useMemo(() => {
+    const groups: { key: string; title: string; items: Report[] }[] = [];
+    const idx = new Map<string, number>();
+
+    const fmt = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
+
+    for (const r of filteredReports) {
+      const d = new Date(r.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const title = fmt.format(new Date(d.getFullYear(), d.getMonth(), 1));
+
+      if (!idx.has(key)) {
+        idx.set(key, groups.length);
+        groups.push({ key, title, items: [r] });
+      } else {
+        groups[idx.get(key)!].items.push(r);
+      }
+    }
+
+    return groups;
+  }, [filteredReports]);
 
   return (
     <div className="container">
@@ -318,7 +354,8 @@ export default function Home() {
           {/* ✅ REMOVIDO: {renderSyncBadge()} */}
         </div>
 
-        <div className="actions" style={{ marginTop: -6 }}>          {!selectMode ? (
+        <div className="actions" style={{ marginTop: -6 }}>
+          {!selectMode ? (
             <button className="btn danger" style={smallBtnStyle} onClick={enterDeleteMode}>
               Excluir
             </button>
@@ -385,9 +422,7 @@ export default function Home() {
             <strong>
               {allVisibleSelected ? "Desmarcar todos" : "Selecionar todos os relatórios exibidos"}
             </strong>
-            <span className="muted">
-              ({selectedIds.size}/{filteredReports.length})
-            </span>
+            <span className="muted">({selectedIds.size}/{filteredReports.length})</span>
           </div>
         </div>
       )}
@@ -395,80 +430,89 @@ export default function Home() {
       <div className="card" style={{ marginTop: 10 }}>
         <h2 className="h2">Histórico</h2>
 
-        <div className="list">
-          {filteredReports.length === 0 && <p className="muted">Nenhum relatório encontrado.</p>}
+        {filteredReports.length === 0 && <p className="muted">Nenhum relatório encontrado.</p>}
 
-          {filteredReports.map((r) => {
-            const checked = selectedIds.has(r.id);
-            const openCount = openCountMap[r.id] ?? 0;
+        {/* ✅ Histórico separado por mês */}
+        {groupedReports.map((group) => (
+          <div key={group.key} style={{ marginTop: 10 }}>
+            <div className="muted" style={{ fontWeight: 800, textTransform: "capitalize", marginBottom: 8 }}>
+              {group.title}
+            </div>
 
-            const content = (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <strong>
-                    {r.shiftLetter} — {r.shift} — {formatDateBR(r.date)}
-                  </strong>
+            <div className="list">
+              {group.items.map((r) => {
+                const checked = selectedIds.has(r.id);
+                const openCount = openCountMap[r.id] ?? 0;
 
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {r.status === "SINCRONIZADO" && isMobile && (
-                      <button
-                        className="btn secondary"
-                        style={smallBtnStyle}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          shareReportWhatsApp(r.id);
-                        }}
-                      >
-                        ➦ WhatsApp
-                      </button>
-                    )}
-                    {openCount > 0 && (
-                      <span className="badge">
-                        ⏳ {openCount === 1 ? "Pendência" : "Pendências"}: {openCount}
-                      </span>
-                    )}
-                    <span className="badge">Status: {r.status}</span>
-                  </div>
-                </div>
-                <div className="muted">Assinatura: {r.signatureName || "-"}</div>
-              </>
-            );
+                const content = (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <strong>
+                        {r.shiftLetter} — {r.shift} — {formatDateBR(r.date)}
+                      </strong>
 
-            if (selectMode) {
-              return (
-                <div
-                  key={r.id}
-                  className="item"
-                  onClick={() => toggleSelect(r.id)}
-                  style={{
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ width: 26, display: "flex", justifyContent: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleSelect(r.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ width: 18, height: 18 }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>{content}</div>
-                </div>
-              );
-            }
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {r.status === "SINCRONIZADO" && isMobile && (
+                          <button
+                            className="btn secondary"
+                            style={smallBtnStyle}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              shareReportWhatsApp(r.id);
+                            }}
+                          >
+                            ➦ WhatsApp
+                          </button>
+                        )}
+                        {openCount > 0 && (
+                          <span className="badge">
+                            ⏳ {openCount === 1 ? "Pendência" : "Pendências"}: {openCount}
+                          </span>
+                        )}
+                        <span className="badge">Status: {r.status}</span>
+                      </div>
+                    </div>
+                    <div className="muted">Assinatura: {r.signatureName || "-"}</div>
+                  </>
+                );
 
-            return (
-              <Link key={r.id} to={`/report/${r.id}`} className="item">
-                {content}
-              </Link>
-            );
-          })}
-        </div>
+                if (selectMode) {
+                  return (
+                    <div
+                      key={r.id}
+                      className="item"
+                      onClick={() => toggleSelect(r.id)}
+                      style={{
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ width: 26, display: "flex", justifyContent: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSelect(r.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ width: 18, height: 18 }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>{content}</div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <Link key={r.id} to={`/report/${r.id}`} className="item">
+                    {content}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {undoData && (
