@@ -3,6 +3,7 @@ import { formatDateBR, priorityOrder } from "./utils";
 
 export async function generateReportPDF(report: Report, activities: Activity[], pendings: Pending[]) {
   const is3x2 = report.shiftLetter.startsWith("3x2");
+  const pendingsActive = pendings.filter((p) => !p.deletedAt);
 
   const theme = is3x2
     ? {
@@ -20,7 +21,7 @@ export async function generateReportPDF(report: Report, activities: Activity[], 
         filePrefix: "RDO_4x4",
       };
 
-  return generateModernPDF(report, activities, pendings, theme);
+  return generateModernPDF(report, activities, pendingsActive, theme);
 }
 
 async function generateModernPDF(

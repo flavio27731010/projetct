@@ -42,8 +42,8 @@ export default function ReportDetail() {
   const [editPenDesc, setEditPenDesc] = useState("");
 
   // Separação de pendências por origem
-  const inheritedPendings = pendings.filter((p) => p.origin === "HERDADA");
-  const newPendings = pendings.filter((p) => p.origin === "NOVA");
+  const inheritedPendings = pendings.filter((p) => p.origin === "HERDADA" && !p.deletedAt);
+  const newPendings = pendings.filter((p) => p.origin === "NOVA" && !p.deletedAt);
 
   // 🔒 trava tudo após FINALIZADO
   // ✅ Bloqueia edição quando o relatório já foi finalizado (mesmo depois de sincronizar)
@@ -67,6 +67,22 @@ export default function ReportDetail() {
     await db.reports.update(id, {
       updatedAt: nowISO(),
       syncVersion: (curr?.syncVersion ?? 0) + 1,
+    });
+  }
+
+  async function queueUpsert(reportId: string) {
+    // ✅ evita acumular vários jobs iguais
+    await db.syncQueue
+      .where("reportId")
+      .equals(reportId)
+      .and((j) => j.type === "UPSERT_REPORT")
+      .delete();
+
+    await db.syncQueue.add({
+      id: uuid(),
+      type: "UPSERT_REPORT",
+      reportId,
+      createdAt: nowISO(),
     });
   }
 
@@ -146,8 +162,35 @@ export default function ReportDetail() {
 
   async function removePending(pId: string) {
     if (isLocked) return;
-    await db.pendings.delete(pId);
-    await bumpReportVersion();
+    const p = await db.pendings.get(pId);
+    if (!p) return;
+
+    // ✅ "Remover" = NÃO voltar nunca mais (mesmo em outro aparelho)
+    // Estratégia:
+    // 1) Marca a pendência como RESOLVIDO em TODOS os relatórios que tenham o mesmo pendingKey
+    //    (assim ela nunca mais é herdada em nenhum lugar)
+    // 2) Localmente, esconde do RDO atual com deletedAt
+    // 3) Agenda sync (UPSERT) de TODOS os reports afetados
+
+    const affected = await db.pendings.where("pendingKey").equals(p.pendingKey).toArray();
+    const affectedReportIds = Array.from(new Set(affected.map((x) => x.reportId)));
+
+    await db.pendings.where("pendingKey").equals(p.pendingKey).modify({ status: "RESOLVIDO" });
+    await db.pendings.update(pId, { deletedAt: nowISO() });
+
+    // ✅ bump + fila de sync para cada report afetado
+    for (const rid of affectedReportIds) {
+      const curr = await db.reports.get(rid);
+      await db.reports.update(rid, {
+        updatedAt: nowISO(),
+        syncVersion: (curr?.syncVersion ?? 0) + 1,
+      });
+      await queueUpsert(rid);
+    }
+
+    // ✅ tenta sincronizar já (se tiver internet / login)
+    await syncNow();
+
     load();
   }
 

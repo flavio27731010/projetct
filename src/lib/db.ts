@@ -49,6 +49,7 @@ export type Pending = {
   createdAt: string;
 
   sourcePendingId?: string;
+  deletedAt?: string | null; // ✅ SOFT DELETE (não herda nem imprime)
 };
 
 export type SyncQueueItem = {
@@ -68,11 +69,11 @@ class AppDB extends Dexie {
     super("rdo_db");
 
     // ✅ Atualizou version para incluir deletedAt no reports
-    this.version(3)
+    this.version(4)
       .stores({
         reports: "id, userId, date, shift, shiftLetter, status, updatedAt, deletedAt",
         activities: "id, reportId, createdAt",
-        pendings: "id, pendingKey, reportId, createdAt",
+        pendings: "id, pendingKey, reportId, createdAt, deletedAt",
         syncQueue: "id, type, reportId, createdAt",
       })
       .upgrade(async (tx) => {
@@ -84,7 +85,15 @@ class AppDB extends Dexie {
           }
         }
 
-        // ✅ Migração: reports antigos ganham deletedAt = null (se faltar)
+        
+        // ✅ Migração: pendências antigas ganham deletedAt = null (se faltar)
+        for (const p of pendings) {
+          if (!("deletedAt" in p)) {
+            await tx.table("pendings").update(p.id, { deletedAt: null });
+          }
+        }
+
+// ✅ Migração: reports antigos ganham deletedAt = null (se faltar)
         const reports = await tx.table("reports").toArray();
         for (const r of reports) {
           if (!("deletedAt" in r)) {

@@ -32,7 +32,12 @@ export async function syncNow() {
       }
 
       const activities = await db.activities.where("reportId").equals(job.reportId).toArray();
-      const pendingsRaw = await db.pendings.where("reportId").equals(job.reportId).toArray();
+      const pendingsRawAll = await db.pendings.where("reportId").equals(job.reportId).toArray();
+      // ✅ IMPORTANTE:
+      // - Não filtramos "deletedAt" aqui, porque o servidor pode não ter essa coluna.
+      // - Mesmo assim, precisamos enviar a atualização de status (ex: RESOLVIDO)
+      //   para que a pendência não volte em outro aparelho/login.
+      const pendingsRaw = pendingsRawAll;
 
       // ✅ limpa uuid quebrado (uuid_uuid -> uuid)
       const cleanUuid = (v: any) => {
@@ -60,13 +65,17 @@ export async function syncNow() {
       };
 
 
-      const pendings = pendingsRaw.map((p) => ({
-        ...p,
+      const pendings = pendingsRaw.map((p: any) => {
+        // remove campos locais que podem não existir no Postgres
+        const { deletedAt, deletedat, deleted_at, ...rest } = p;
+        return {
+        ...rest,
         id: cleanUuid(p.id),
         reportId: cleanUuid(p.reportId),
         pendingKey: cleanUuid(p.pendingKey),
         sourcePendingId: p.sourcePendingId ? cleanUuid(p.sourcePendingId) : null,
-      }));
+        };
+      });
 
       // ✅ UPSERT global (report pode ter deletedAt!)
       const reportToSend: any = { ...report };

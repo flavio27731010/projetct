@@ -49,7 +49,7 @@ export async function inheritOpenPendings(newReportId: string, newReportShiftLet
         db.pendings
           .where("reportId")
           .equals(rid)
-          .filter((p) => p.status !== "RESOLVIDO")
+          .filter((p) => p.status !== "RESOLVIDO" && !p.deletedAt)
           .toArray()
       )
     )
