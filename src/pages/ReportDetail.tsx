@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { db } from "../lib/db";
 import type { Activity, Pending, Report } from "../lib/db";
 import { formatDateBR, nowHHmm, nowISO, uuid } from "../lib/utils";
@@ -8,7 +8,7 @@ import { syncNow } from "../lib/sync";
 
 export default function ReportDetail() {
   const { id } = useParams();
-  const nav = useNavigate();
+
 
   const [report, setReport] = useState<Report | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -315,7 +315,7 @@ export default function ReportDetail() {
         : "Relatório finalizado. Será sincronizado quando voltar internet."
     );
 
-    nav("/");
+    load();
   }
 
   if (!report) return <div className="container">Carregando relatório...</div>;

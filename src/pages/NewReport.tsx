@@ -38,6 +38,13 @@ export default function NewReport() {
     }
   }
 
+  function refreshAposCriarRelatorio() {
+  setTimeout(() => {
+    window.location.reload();
+  }, 100);
+}
+  
+
   
   // ✅ se for 3x2: força DIURNO e remove NOTURNO
   useEffect(() => {
@@ -172,10 +179,16 @@ nav(`/report/${id}`);
         </div>
 
         <div className="actions" style={{ marginTop: 14 }}>
-          <button className="btn" onClick={createReport}>
-            Criar Relatório
-          </button>
-        </div>
+  <button
+    className="btn"
+    onClick={async () => {
+      await createReport();
+      refreshAposCriarRelatorio();
+    }}
+  >
+    Criar Relatório
+  </button>
+</div>
 
         <div className="muted" style={{ marginTop: 10 }}>
           Depois de criado, você adiciona atividades e pendências e gera o PDF offline.

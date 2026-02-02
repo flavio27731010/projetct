@@ -169,6 +169,17 @@ export default function Home() {
     setSelectedIds(new Set());
   }
 
+function abrirNovoRelatorio() {
+  // navega para a página do novo relatório
+  window.location.href = "/new";
+
+  // força atualização da página
+  setTimeout(() => {
+    window.location.reload();
+  }, 50);
+}
+
+
   const allVisibleSelected =
     filteredReports.length > 0 &&
     filteredReports.every((r) => selectedIds.has(r.id));
@@ -380,19 +391,24 @@ export default function Home() {
           )}
 
           <Link
-            className="btn"
-            to="/new"
-            style={{
-              ...smallBtnStyle,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              lineHeight: 1,
-              textDecoration: "none",
-            }}
-          >
-            Novo Relatório
-          </Link>
+  className="btn"
+  to="/new"
+  onClick={(e) => {
+    e.preventDefault();
+    abrirNovoRelatorio();
+  }}
+  style={{
+    ...smallBtnStyle,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 1,
+    textDecoration: "none",
+  }}
+>
+  Novo Relatório
+</Link>
+
         </div>
       </div>
 
